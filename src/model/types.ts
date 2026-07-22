@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = "contour.topology/v1" as const;
+export const SCHEMA_VERSION = "contour.topology/v2" as const;
 
 export type NodeKind =
   | "host" | "numa_node" | "cpu_package" | "cpu_core" | "cache"
@@ -42,6 +42,7 @@ export interface TopologyEdge {
   kind: EdgeKind;
   source: string;
   target: string;
+  facts: Record<string, TopologyFact>;
   provenance: ProvenanceRecord[];
 }
 

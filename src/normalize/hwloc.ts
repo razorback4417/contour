@@ -220,7 +220,7 @@ function unknownFact(source: string, field: string): TopologyFact {
 }
 
 function edge(kind: EdgeKind, source: string, target: string, provenance: ProvenanceRecord[]): TopologyEdge {
-  return { id: stableId("edge", `${kind}:${source}:${target}`), kind, source, target, provenance };
+  return { id: stableId("edge", `${kind}:${source}:${target}`), kind, source, target, facts: {}, provenance };
 }
 
 function observedProvenance(source: string, field: string, raw: string | number | boolean, normalized: string | number | boolean = raw): ProvenanceRecord[] {

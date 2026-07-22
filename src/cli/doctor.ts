@@ -27,6 +27,10 @@ export async function inspectEnvironment(staticRoot: string): Promise<DoctorRepo
     checks.push(await commandCheck("hwloc/lstopo", "lstopo", ["--version"], true, "Install hwloc: sudo apt install hwloc (Ubuntu/Debian) or sudo dnf install hwloc (Fedora/RHEL)."));
     checks.push(await commandCheck("iproute2", "ip", ["-Version"], false, "Install iproute2 for interface and PCI correlation."));
     checks.push(await commandCheck("RDMA tooling", "rdma", ["-V"], false, "Install iproute2's RDMA tooling to correlate RDMA ports and netdevs."));
+    checks.push(await commandCheck("ethtool", "ethtool", ["--version"], false, "Install ethtool for negotiated Ethernet link evidence."));
+    checks.push(await commandCheck("devlink", "devlink", ["-Version"], false, "Install iproute2 devlink tooling for firmware and device-health evidence."));
+    checks.push(await commandCheck("NVIDIA SMI", "nvidia-smi", ["--version"], false, "Install the NVIDIA driver utilities for optional GPU link evidence."));
+    checks.push(await commandCheck("NVIDIA mlxlink", "mlxlink", ["--version"], false, "Install NVIDIA MFT for optional adapter, cable, and PCIe evidence."));
   }
 
   const nodeReady = checks.find((check) => check.label === "Node.js")?.state === "ok";

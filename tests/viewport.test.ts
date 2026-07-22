@@ -8,9 +8,12 @@ describe("viewport pan", () => {
     expect(origin).toEqual({ pointerX: 100, pointerY: 80, viewX: 12, viewY: -4 });
   });
 
-  it("zooms within deterministic bounds", () => {
-    expect(zoomFromWheel(1, -1)).toBeCloseTo(1.1);
-    expect(zoomFromWheel(2.5, -1)).toBe(2.5);
-    expect(zoomFromWheel(0.3, 1)).toBe(0.3);
+  it("zooms smoothly across trackpad and mouse-wheel deltas within deterministic bounds", () => {
+    expect(zoomFromWheel(1, -1)).toBeCloseTo(Math.exp(0.00125));
+    expect(zoomFromWheel(1, -100)).toBeCloseTo(Math.exp(0.05));
+    expect(zoomFromWheel(1, 100)).toBeCloseTo(Math.exp(-0.05));
+    expect(zoomFromWheel(1, 0)).toBe(1);
+    expect(zoomFromWheel(2.5, -100)).toBe(2.5);
+    expect(zoomFromWheel(0.3, 100)).toBe(0.3);
   });
 });

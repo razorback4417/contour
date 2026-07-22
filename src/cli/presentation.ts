@@ -14,7 +14,7 @@ const statusMark = { success: "OK", partial: "PARTIAL", unavailable: "OPTIONAL",
 export function formatSnapshotSummary(snapshot: TopologySnapshot): string {
   const host = snapshot.nodes.find((node) => node.id === snapshot.hostId)?.label ?? "this host";
   const collectors = snapshot.collectors.map((collector) => {
-    const message = collector.message ? ` — ${singleLine(collector.message)}` : "";
+    const message = collector.message ? ` — ${truncate(singleLine(collector.message), 180)}` : "";
     return `  ${statusMark[collector.status].padEnd(8)} ${collector.collector}${message}`;
   });
   return [
@@ -56,3 +56,4 @@ export function sshTarget(environment: NodeJS.ProcessEnv, hostname: string): str
 
 function isLoopback(host: string): boolean { return host === "127.0.0.1" || host === "localhost" || host === "::1"; }
 function singleLine(value: string): string { return value.replace(/\s+/g, " ").trim(); }
+function truncate(value: string, max: number): string { return value.length <= max ? value : `${value.slice(0, max - 1)}…`; }

@@ -13,5 +13,6 @@ export function panFromDrag(origin: DragOrigin, pointerX: number, pointerY: numb
 }
 
 export function zoomFromWheel(scale: number, deltaY: number): number {
-  return Math.min(2.5, Math.max(0.3, scale * (deltaY > 0 ? 0.9 : 1.1)));
+  const normalizedDelta = Math.max(-40, Math.min(40, deltaY));
+  return Math.min(2.5, Math.max(0.3, scale * Math.exp(-normalizedDelta * 0.00125)));
 }

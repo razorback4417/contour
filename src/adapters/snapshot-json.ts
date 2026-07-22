@@ -13,13 +13,19 @@ export function parseSnapshotJson(json: string): TopologySnapshot {
   try { value = JSON.parse(json); }
   catch (error) { throw new SnapshotParseError(`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`); }
   if (!isRecord(value)) throw new SnapshotParseError("Snapshot must be a JSON object.");
-  if (value.schemaVersion !== SCHEMA_VERSION) throw new SnapshotParseError(`Unsupported schemaVersion: ${String(value.schemaVersion)}`);
-  if (typeof value.snapshotId !== "string" || typeof value.hostId !== "string" || typeof value.collectedAt !== "string") throw new SnapshotParseError("Snapshot identity fields are missing.");
-  if (!Array.isArray(value.nodes) || !Array.isArray(value.edges) || !Array.isArray(value.collectors) || !Array.isArray(value.diagnostics)) throw new SnapshotParseError("Snapshot graph fields are missing.");
-  const snapshot = value as unknown as TopologySnapshot;
+  const record = value.schemaVersion === "contour.topology/v1" ? migrateV1(value) : value;
+  if (record.schemaVersion !== SCHEMA_VERSION) throw new SnapshotParseError(`Unsupported schemaVersion: ${String(record.schemaVersion)}`);
+  if (typeof record.snapshotId !== "string" || typeof record.hostId !== "string" || typeof record.collectedAt !== "string") throw new SnapshotParseError("Snapshot identity fields are missing.");
+  if (!Array.isArray(record.nodes) || !Array.isArray(record.edges) || !Array.isArray(record.collectors) || !Array.isArray(record.diagnostics)) throw new SnapshotParseError("Snapshot graph fields are missing.");
+  const snapshot = record as unknown as TopologySnapshot;
   const structural = validateSnapshot(snapshot);
   if (structural.some((item) => item.severity === "error")) throw new SnapshotParseError(structural.map((item) => item.message).join(" "));
   return snapshot;
+}
+
+function migrateV1(value: Record<string, unknown>): Record<string, unknown> {
+  const edges = Array.isArray(value.edges) ? value.edges.map((edge) => isRecord(edge) ? { ...edge, facts: {} } : edge) : value.edges;
+  return { ...value, schemaVersion: SCHEMA_VERSION, edges };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -14,6 +14,7 @@ export function validateSnapshot(snapshot: TopologySnapshot): Diagnostic[] {
   }
   for (const edge of snapshot.edges) {
     if (!ids.has(edge.source) || !ids.has(edge.target)) diagnostics.push(make("DANGLING_EDGE", "error", `${edge.id} has a missing endpoint.`));
+    if (!edge.facts || typeof edge.facts !== "object" || Array.isArray(edge.facts)) diagnostics.push(make("EDGE_FACTS_MISSING", "error", `${edge.id} is missing its facts map.`));
   }
   return diagnostics;
 }

@@ -1,10 +1,10 @@
-# Canonical topology schema v1
+# Canonical topology schema v2
 
 `TopologySnapshot` is the durable renderer contract. Required top-level fields are `schemaVersion`, `snapshotId`, `hostId`, `collectedAt`, `nodes`, `edges`, `collectors`, and `diagnostics`.
 
 ## Nodes
 
-Every node has a stable `id`, a generic `kind`, a technical `label`, optional `parentId`, and a sorted fact map. Supported v1 kinds are:
+Every node has a stable `id`, a generic `kind`, a technical `label`, optional `parentId`, and a sorted fact map. Supported kinds are:
 
 `host`, `numa_node`, `cpu_package`, `cpu_core`, `cache`, `memory_region`, `pci_domain`, `pci_bus`, `pci_bridge`, `pci_endpoint`, `gpu`, `nic`, `rdma_device`, `network_port`, `network_interface`, and `storage_device`.
 
@@ -20,7 +20,9 @@ Vendor or source-specific data uses namespaced keys such as `hwloc.pci_type`; it
 
 ## Edges
 
-Edges have stable IDs, `source`, `target`, a typed `kind`, and provenance. V1 kinds are `contains`, `attached_to`, `local_to`, `exposes`, `backed_by`, `connected_to`, `shares_bridge_with`, and `derived_from`. Containment follows source hierarchy. `backed_by` relates OS devices to their PCI device. `local_to` is emitted only from explicit NUMA ancestry or nodeset evidence; it is never guessed from visual proximity.
+Edges have stable IDs, `source`, `target`, a typed `kind`, a fact map, and provenance. Kinds are `contains`, `attached_to`, `local_to`, `exposes`, `backed_by`, `connected_to`, `shares_bridge_with`, and `derived_from`. Containment follows source hierarchy. `backed_by` relates OS devices to their PCI device. `local_to` is emitted only from explicit NUMA ancestry or nodeset evidence; it is never guessed from visual proximity.
+
+Edge facts represent properties of a connection rather than either endpoint. PCIe negotiated/capable speed and width, AER evidence, and vendor link counters therefore live on the device's upstream containment edge. A v1 snapshot is migrated on load by adding empty edge fact maps; new exports always use `contour.topology/v2`.
 
 ## Identity
 

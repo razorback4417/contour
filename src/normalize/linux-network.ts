@@ -64,5 +64,5 @@ export function enrichLinuxNetwork(input: TopologySnapshot, raw: LinuxNetworkObs
 
 function fact(value: FactValue, collector: string, field: string): TopologyFact { return { value, state: "observed", provenance: provenance(collector, field, value) }; }
 function provenance(collector: string, field: string, value: FactValue): ProvenanceRecord[] { return [{ collector, source: collector.startsWith("linux.sysfs") ? "/sys/class" : `command:${collector}`, sourceField: field, rawValue: value, normalizedValue: value, method: "observed" }]; }
-function addEdge(snapshot: TopologySnapshot, kind: EdgeKind, source: string, target: string, records: ProvenanceRecord[]) { const id = stableId("edge", `${kind}:${source}:${target}`); if (!snapshot.edges.some((edge) => edge.id === id)) snapshot.edges.push({ id, kind, source, target, provenance: records } as TopologyEdge); }
+function addEdge(snapshot: TopologySnapshot, kind: EdgeKind, source: string, target: string, records: ProvenanceRecord[]) { const id = stableId("edge", `${kind}:${source}:${target}`); if (!snapshot.edges.some((edge) => edge.id === id)) snapshot.edges.push({ id, kind, source, target, facts: {}, provenance: records } as TopologyEdge); }
 function sortRecord<T>(record: Record<string, T>): Record<string, T> { return Object.fromEntries(Object.entries(record).sort(([a], [b]) => a.localeCompare(b))); }

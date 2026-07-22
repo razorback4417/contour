@@ -1,13 +1,27 @@
 // @vitest-environment jsdom
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/ui/App";
+
+const styles = readFileSync("src/ui/styles.css", "utf8");
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 describe("progressive topology interaction", () => {
   afterEach(() => vi.unstubAllGlobals());
+
+  it("gives the workspace all remaining viewport height", () => {
+    expect(cssRule(".shell")).toMatch(/display:\s*flex/);
+    expect(cssRule(".shell")).toMatch(/flex-direction:\s*column/);
+    expect(cssRule("main")).toMatch(/flex:\s*1/);
+  });
+
+  function cssRule(selector: string): string {
+    const start = styles.indexOf(`${selector} {`);
+    return start < 0 ? "" : styles.slice(start, styles.indexOf("}", start) + 1);
+  }
 
   it("keeps the overview to one system brief and two investigation routes", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("Not found", { status: 404, headers: { "content-type": "text/plain" } })));

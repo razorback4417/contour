@@ -33,7 +33,7 @@ Contour is a deterministic Linux system-topology explorer. It collects CPU, NUMA
 
 ## Quick start on Linux
 
-Requirements: Node.js 22 or newer and `lstopo` from hwloc.
+Requirements: Node.js 22 or newer and `lstopo` from hwloc. `ethtool`, `rdma`, `devlink`, `nvidia-smi`, and `mlxlink` are optional evidence sources; missing tools do not prevent collection.
 
 ```bash
 sudo apt install hwloc
@@ -102,7 +102,7 @@ contour topology.xml
 - Choose endpoint A and endpoint B to highlight their known containment path.
 - Export the canonical snapshot or current deterministic SVG from the browser.
 
-Edges represent observed or derived topology facts—not measured traffic, bandwidth, or proof of congestion. Unknown information remains distinct from absent information.
+Edges represent observed or derived topology facts. When sources provide it, the inspector shows PCIe negotiated/capable width and speed, Ethernet link/FEC state, RDMA counters, driver health, and optional NVIDIA evidence. Counters and topology do not by themselves prove congestion; unknown information remains distinct from absent information.
 
 ## Development
 
@@ -117,7 +117,7 @@ Use `npm run dev` for UI development. The durable topology contract and collecto
 
 ## Current limits
 
-Live collection currently combines hwloc XML, `ip -details -json link`, `/sys/class/net`, and optional `rdma -j link show`. PCI link enrichment, NVML/NVLink, NVMe enrichment, and Mellanox-specific details remain planned.
+Live collection combines hwloc XML, Linux PCI/network sysfs, iproute2, ethtool, RDMA statistics, devlink health, and optional NVIDIA XML/`mlxlink` evidence. Direct NVML, NVMe subsystem enrichment, continuous telemetry, and fabric-wide topology remain planned. Some driver health, module, and `mlxlink` data may require permissions Contour does not request automatically.
 
 Snapshots may contain identifying hardware or environment data such as hostnames, interfaces, PCI identifiers, GUIDs, serials, and source paths. Review them before sharing.
 

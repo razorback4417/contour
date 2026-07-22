@@ -5,11 +5,29 @@ import { normalizeHwloc } from "../src/normalize/hwloc";
 import { stableStringify } from "../src/model/stable";
 import { layoutTopology } from "../src/layout/hierarchy";
 import { renderTopologySvg } from "../src/render/svg";
+import { parseSnapshotJson } from "../src/adapters/snapshot-json";
 
 const workstationXml = readFileSync(new URL("../fixtures/workstation.xml", import.meta.url), "utf8");
 const acceleratorXml = readFileSync(new URL("../fixtures/accelerator-server.xml", import.meta.url), "utf8");
 
 describe("hwloc normalization contract", () => {
+  it("emits fact-bearing v2 edges and migrates saved v1 snapshots", () => {
+    const current = normalizeHwloc(parseHwlocXml(workstationXml));
+    expect(current.schemaVersion).toBe("contour.topology/v2");
+    expect(current.edges.every((edge) => edge.facts && typeof edge.facts === "object")).toBe(true);
+
+    const legacy = structuredClone(current) as unknown as Record<string, unknown>;
+    legacy.schemaVersion = "contour.topology/v1";
+    legacy.edges = current.edges.map(({ facts: _facts, ...edge }) => edge);
+    const migrated = parseSnapshotJson(JSON.stringify(legacy));
+    expect(migrated.schemaVersion).toBe("contour.topology/v2");
+    expect(migrated.edges.every((edge) => Object.keys(edge.facts).length === 0)).toBe(true);
+
+    const malformed = structuredClone(current) as unknown as { edges: Array<Record<string, unknown>> };
+    delete malformed.edges[0].facts;
+    expect(() => parseSnapshotJson(JSON.stringify(malformed))).toThrow("missing its facts map");
+  });
+
   it("is byte-stable across repeated normalization", () => {
     const first = normalizeHwloc(parseHwlocXml(acceleratorXml, "accelerator.xml"));
     const second = normalizeHwloc(parseHwlocXml(acceleratorXml, "accelerator.xml"));

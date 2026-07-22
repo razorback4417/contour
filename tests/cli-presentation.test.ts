@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { detectSshSession, formatServerReady, sshTarget } from "../src/cli/presentation";
+import { detectSshSession, formatServerReady, formatSnapshotSummary, sshTarget } from "../src/cli/presentation";
+import { normalizeHwloc } from "../src/normalize/hwloc";
+import { parseHwlocXml } from "../src/adapters/hwloc";
 
 describe("CLI startup guidance", () => {
   it("reports an opened local browser without SSH noise", () => {
@@ -18,5 +20,13 @@ describe("CLI startup guidance", () => {
     expect(detectSshSession({ SSH_CONNECTION: "client server" })).toBe(true);
     expect(detectSshSession({})).toBe(false);
     expect(sshTarget({ USER: "ubuntu", SSH_CONNECTION: "10.0.0.2 52000 10.0.0.8 22" }, "remote-host")).toBe("ubuntu@10.0.0.8");
+  });
+
+  it("keeps optional collector failures readable", () => {
+    const snapshot = normalizeHwloc(parseHwlocXml(`<topology><object type="Machine"/></topology>`));
+    snapshot.collectors.push({ collector: "linux.ethtool", status: "partial", startedAt: "x", completedAt: "x", source: "command:ethtool", message: "interface failure; ".repeat(30) });
+    const line = formatSnapshotSummary(snapshot).split("\n").find((item) => item.includes("linux.ethtool"))!;
+    expect(line.length).toBeLessThan(230);
+    expect(line).toContain("…");
   });
 });
