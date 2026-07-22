@@ -8,10 +8,11 @@ This is the source-prioritized collector plan as of 2026-07-22. Each command mus
 - `ip -details -json link show`: interface identity, state, MTU, queue counts, type, and physical port name.
 - `/sys/class/net/<ifname>/device`: explicit interface-to-device path, PCI BDF when the path ends in one, and kernel NUMA affinity when non-negative.
 - `rdma -j link show`: optional RDMA device/port state and explicit RDMA-port-to-netdev correlation. An unavailable command becomes an unavailable collector result rather than an empty RDMA topology.
+- `rdma -j dev show` and `/sys/class/infiniband/<device>/device`: RDMA device attributes and explicit PCI ownership. GUID fields are intentionally not retained.
 - `/sys/bus/pci/devices/<BDF>`: PCI identity, driver, IOMMU group, NUMA placement, negotiated/capable link speed and width, and available AER counters.
-- `ethtool`, `ethtool -i`, and `ethtool --show-fec`: negotiated Ethernet speed, lanes, duplex, carrier, driver/firmware, and FEC evidence.
+- `ethtool`, `ethtool -i`, `ethtool --show-fec`, and `ethtool -S`: negotiated Ethernet speed, lanes, duplex, carrier, driver/firmware, FEC, and a bounded set of nonzero error/drop/pause/FEC counters.
 - `rdma -j statistic show`: optional per-port RDMA hardware counters.
-- `devlink -j dev info` and `devlink -j health show`: optional firmware identity and driver health-reporter state. Serial-number fields are intentionally not retained.
+- `devlink -j dev info`, `devlink -j port show`, and `devlink -j health show`: optional firmware identity, netdev-to-physical-port metadata, and driver health-reporter state. Serial-number fields are intentionally not retained.
 - `nvidia-smi -q -x`: optional isolated XML adapter for GPU PCIe capability/state, replay counters, C2C mode, and NVLink availability.
 - `mlxlink -d <BDF> --json`: optional NVIDIA Networking evidence for link speed/width, errors, BER, cable, and physical-grade fields. Permission failures remain explicit collector failures.
 
@@ -20,7 +21,6 @@ This is the source-prioritized collector plan as of 2026-07-22. Each command mus
 - Broader `/sys/devices`, `/sys/bus/pci`, and `/sys/class/*` coverage: stable Linux relationships and attributes with no human-output parser. This should become the baseline for hosts where hwloc is unavailable.
 - `lspci -D -mm -nn -k` plus selected `-vv` fields: fallback PCI identity and bridge detail where sysfs is incomplete. Prefer sysfs for topology and link evidence.
 - `ip -json address`: optional address inventory, with a privacy policy before snapshots retain addresses.
-- `rdma -j dev show`: device-level RDMA enrichment beyond the implemented link, port, and statistic relationships.
 - Direct ethtool netlink: replace isolated text adapters where deployed ethtool versions expose consistent structured replies.
 - `nvme list -o json` and `nvme list-subsys -o json`: controller, namespace, and subsystem relationships.
 
@@ -28,7 +28,7 @@ This is the source-prioritized collector plan as of 2026-07-22. Each command mus
 
 - Direct NVML remains the preferred future programmatic GPU adapter. The implemented `nvidia-smi -q -x` collector is isolated because NVIDIA does not promise backward-compatible NVSMI output.
 - `nvidia-smi topo -m` / newer focused `topo` commands answer GPU-to-GPU, GPU-to-NIC, CPU/memory affinity, and NVMe path questions. Their matrix output is an adapter input, never the canonical model.
-- `ibdev2netdev`, `/sys/class/infiniband`, and `rdma` correlate mlx5 RDMA ports to netdevs and PCI devices. GUIDs must be sanitized in committed fixtures.
+- `ibdev2netdev` remains a possible fallback where the implemented sysfs and `rdma` correlations are incomplete. GUIDs must be sanitized in committed fixtures.
 - Deeper `mlxlink` cable and eye diagnostics remain opt-in. Contour only performs a read-only JSON query and never changes port state.
 
 ## Explicitly deferred

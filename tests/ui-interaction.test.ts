@@ -18,6 +18,16 @@ describe("progressive topology interaction", () => {
     expect(cssRule("main")).toMatch(/flex:\s*1/);
   });
 
+  it("keeps physical-link fact labels separate from their values", () => {
+    expect(cssRule(".link-evidence .link-fact")).toMatch(/display:\s*grid/);
+    expect(cssRule(".link-evidence .link-fact")).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)\s+max-content/);
+  });
+
+  it("keeps overview routes comfortably inset from the browser edges", () => {
+    expect(cssRule(".overview-panel")).toMatch(/calc\(100%\s*-\s*144px\)/);
+    expect(cssRule(".question-card")).toMatch(/padding:\s*22px\s+12px/);
+  });
+
   function cssRule(selector: string): string {
     const start = styles.indexOf(`${selector} {`);
     return start < 0 ? "" : styles.slice(start, styles.indexOf("}", start) + 1);
@@ -101,6 +111,9 @@ describe("progressive topology interaction", () => {
     act(() => endpointB.click());
     expect(container.querySelector(".trace-state")?.textContent).toContain("hops");
     expect(container.querySelectorAll("path.edge.traced").length).toBeGreaterThan(0);
+    expect(container.querySelector(".path-dossier")?.textContent).toContain("PATH DOSSIER");
+    expect(container.querySelector(".dossier-route")?.textContent).toContain("Known containment route");
+    expect(container.querySelector(".finding-heading")?.textContent).toContain("FINDINGS");
 
     const wheel = new WheelEvent("wheel", { deltaY: -1, cancelable: true });
     act(() => container.querySelector(".viewport svg")!.dispatchEvent(wheel));

@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { basename } from "node:path";
 import { readFile, realpath } from "node:fs/promises";
 import { promisify } from "node:util";
-import { parseDevlinkHealthJson, parseDevlinkInfoJson, parseEttoolDriverText, parseEttoolText, parseMlxlinkJson, parseNvidiaSmiXml, parseRdmaStatisticJson, type EvidenceFactInput, type EvidenceObservation, type PhysicalEvidence } from "../adapters/evidence";
+import { parseDevlinkHealthJson, parseDevlinkInfoJson, parseEttoolDriverText, parseEttoolStatisticsText, parseEttoolText, parseMlxlinkJson, parseNvidiaSmiXml, parseRdmaStatisticJson, type EvidenceFactInput, type EvidenceObservation, type PhysicalEvidence } from "../adapters/evidence";
 import type { CollectorResult, FactValue, TopologySnapshot } from "../model/types";
 import type { ProcessRunner } from "./lstopo";
 
@@ -22,7 +22,9 @@ export async function collectPhysicalEvidence(snapshot: TopologySnapshot, option
   const observations: EvidenceObservation[] = [];
   const collectors: CollectorResult[] = [];
   const bdfs = unique(snapshot.nodes.map((node) => node.facts.pci_bdf?.value).filter((value): value is string => typeof value === "string"));
-  const interfaces = unique(snapshot.nodes.filter((node) => node.kind === "network_interface" && node.facts.link_type?.value !== "loopback").flatMap((node) => [node.facts["linux.ifname"]?.value, node.facts["hwloc.name"]?.value]).filter((value): value is string => typeof value === "string"));
+  const backedInterfaces = new Set(snapshot.edges.filter((edge) => edge.kind === "backed_by").map((edge) => edge.source));
+  const nodesById = new Map(snapshot.nodes.map((node) => [node.id, node]));
+  const interfaces = unique(snapshot.nodes.filter((node) => node.kind === "network_interface" && node.facts.link_type?.value !== "loopback" && (Boolean(node.facts.sysfs_device_path) || backedInterfaces.has(node.id) || (node.parentId ? ["nic", "pci_endpoint"].includes(nodesById.get(node.parentId)?.kind ?? "") : false))).flatMap((node) => [node.facts["linux.ifname"]?.value, node.facts["hwloc.name"]?.value]).filter((value): value is string => typeof value === "string"));
 
   const pciStarted = now().toISOString();
   const pciResults = await Promise.allSettled(bdfs.map(inspectPci));
@@ -71,10 +73,10 @@ async function collectEttool(ifnames: string[], runner: ProcessRunner, now: () =
   let missing = false;
   const failures: string[] = [];
   for (const ifname of ifnames) {
-    for (const args of [[ifname], ["-i", ifname], ["--show-fec", ifname]]) {
+    for (const args of [[ifname], ["-i", ifname], ["--show-fec", ifname], ["-S", ifname]]) {
       try {
         const output = await runner("ethtool", args);
-        const parsed = args[0] === "-i" ? parseEttoolDriverText(output.stdout, ifname) : parseEttoolText(output.stdout, ifname);
+        const parsed = args[0] === "-i" ? parseEttoolDriverText(output.stdout, ifname) : args[0] === "-S" ? parseEttoolStatisticsText(output.stdout, ifname) : parseEttoolText(output.stdout, ifname);
         if (parsed.facts.length) observations.push(parsed);
         succeeded += 1;
         if (output.stderr.trim()) failures.push(`${ifname}: ${output.stderr.trim()}`);

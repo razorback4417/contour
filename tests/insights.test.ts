@@ -9,8 +9,8 @@ describe("engineering insights", () => {
     const xml = readFileSync(new URL("../fixtures/workstation.xml", import.meta.url), "utf8");
     const insights = topologyInsights(normalizeHwloc(parseHwlocXml(xml)));
     const shared = insights.find((item) => item.id.startsWith("shared-bridge:"));
-    expect(shared?.title).toContain("Potential");
-    expect(shared?.evidence).toContain("does not prove congestion");
-    expect(insights.some((item) => item.id === "rdma-correlation-not-collected")).toBe(true);
+    expect(shared?.title).toContain("share");
+    expect(shared?.evidence).toContain("not simultaneous traffic or congestion");
+    expect(insights).toEqual(topologyInsights(normalizeHwloc(parseHwlocXml(xml))));
   });
 });

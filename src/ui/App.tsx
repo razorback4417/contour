@@ -7,6 +7,7 @@ import { layoutTopology } from "../layout/hierarchy";
 import { renderTopologySvg } from "../render/svg";
 import type { NodeKind, TopologyNode, TopologySnapshot } from "../model/types";
 import { stableStringify } from "../model/stable";
+import { buildPathDossier, type PathDossier } from "../analysis/troubleshooting";
 import { panFromDrag, zoomFromWheel, type DragOrigin } from "./viewport";
 import { investigationCommands } from "./investigate";
 import { pathContainsEdge, traceTopologyPath } from "./trace";
@@ -57,6 +58,7 @@ export function App() {
     return ids;
   }, [traceEndpoints, numa, snapshot, tracedPath]);
   const selectedNode = activeNodeId ? nodeById.get(activeNodeId) : undefined;
+  const dossier = useMemo(() => traceEndpoints.length === 2 ? buildPathDossier(snapshot, traceEndpoints[0], traceEndpoints[1]) : activeNodeId ? buildPathDossier(snapshot, activeNodeId) : undefined, [snapshot, traceEndpoints, activeNodeId]);
   const numaNodes = snapshot.nodes.filter((node) => node.kind === "numa_node");
   const hostLabel = nodeById.get(snapshot.hostId)?.label ?? "Linux host";
   const successfulCollectors = snapshot.collectors.filter((collector) => collector.status === "success").length;
@@ -161,7 +163,7 @@ export function App() {
           </svg>
         </>}
       </section>
-      {mode !== "overview" && <aside className="details">{selectedNode ? <Details node={selectedNode} snapshot={snapshot} traceEndpoints={traceEndpoints} hiddenDescendantCount={projection?.hiddenDescendantCounts.get(selectedNode.id)} onChooseTrace={() => chooseTraceEndpoint(selectedNode.id)} onExploreBranch={mode === "io" && projection?.hiddenDescendantCounts.has(selectedNode.id) ? () => { setFocusRootId(selectedNode.id); setActiveNodeId(undefined); setView({ x: 0, y: 0, scale: 1 }); } : undefined}/> : <EmptyInspector mode={mode}/>}</aside>}
+      {mode !== "overview" && <aside className="details">{dossier && <Dossier dossier={dossier} snapshot={snapshot}/>} {selectedNode ? <Details node={selectedNode} snapshot={snapshot} traceEndpoints={traceEndpoints} hiddenDescendantCount={projection?.hiddenDescendantCounts.get(selectedNode.id)} onChooseTrace={() => chooseTraceEndpoint(selectedNode.id)} onExploreBranch={mode === "io" && projection?.hiddenDescendantCounts.has(selectedNode.id) ? () => { setFocusRootId(selectedNode.id); setActiveNodeId(undefined); setView({ x: 0, y: 0, scale: 1 }); } : undefined}/> : <EmptyInspector mode={mode}/>}</aside>}
     </main>
   </div>;
 }
@@ -182,6 +184,15 @@ function OverviewWorkspace({ snapshot, overview, onOpen }: { snapshot: TopologyS
 function TraceState({ endpoints, path, nodes, onClear }: { endpoints: string[]; path: string[]; nodes: ReadonlyMap<string, TopologyNode>; onClear: () => void }) {
   if (endpoints.length === 0) return null;
   return <div className="trace-state"><b>PATH</b>{endpoints.length === 1 && <span>A · {truncate(nodes.get(endpoints[0])?.label ?? endpoints[0], 24)} → choose endpoint B</span>}{endpoints.length === 2 && <span>A · {truncate(nodes.get(endpoints[0])?.label ?? endpoints[0], 16)} → B · {truncate(nodes.get(endpoints[1])?.label ?? endpoints[1], 16)} · {Math.max(0, path.length - 1)} hops</span>}<button onClick={onClear}>Clear</button></div>;
+}
+
+function Dossier({ dossier, snapshot }: { dossier: PathDossier; snapshot: TopologySnapshot }) {
+  const nodes = new Map(snapshot.nodes.map((node) => [node.id, node]));
+  const pair = dossier.endpointIds.length === 2;
+  const endpoints = dossier.endpointIds.map((id) => nodes.get(id)?.label ?? id);
+  return <section className="path-dossier"><label className="section-label">{pair ? "PATH DOSSIER" : "OBJECT ASSESSMENT"}</label>{pair && <><div className="dossier-endpoints"><b>A · {endpoints[0]}</b><span>→</span><b>B · {endpoints[1]}</b></div><p className={`numa-status ${dossier.numaStatus}`}>{Math.max(0, dossier.pathIds.length - 1)} hops · NUMA {dossier.numaStatus}</p><details className="dossier-route"><summary>Known containment route</summary><ol>{dossier.hops.map((hop) => <li key={hop.nodeId}><span>{hop.kind.replaceAll("_", " ")}</span><b>{hop.label}</b>{hop.identifier && <code>{hop.identifier}</code>}{hop.numaLabels.length > 0 && <small>{hop.numaLabels.join(", ")}</small>}</li>)}</ol></details></>}
+    <div className="finding-heading"><span>FINDINGS</span><b>{dossier.findings.length}</b></div>{dossier.findings.length === 0 ? <p className="no-findings">No suspicious evidence was identified in the available snapshot. This is not a health guarantee.</p> : <div className="finding-list">{dossier.findings.map((finding) => <details className={`finding ${finding.severity}`} key={finding.id}><summary><i/><span>{finding.title}</span></summary><p>{finding.summary}</p><ul>{finding.evidence.map((item) => <li key={item}>{item}</li>)}</ul><small>{finding.uncertainty}</small><div className="finding-command"><code>{finding.verificationCommand}</code><button title="Copy verification command" onClick={() => navigator.clipboard?.writeText(finding.verificationCommand)}>COPY</button></div></details>)}</div>}
+  </section>;
 }
 
 function Details({ node, snapshot, traceEndpoints, hiddenDescendantCount, onChooseTrace, onExploreBranch }: { node: TopologyNode; snapshot: TopologySnapshot; traceEndpoints: string[]; hiddenDescendantCount?: number; onChooseTrace: () => void; onExploreBranch?: () => void }) {

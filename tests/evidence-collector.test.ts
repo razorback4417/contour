@@ -14,7 +14,9 @@ describe("optional physical evidence collectors", () => {
       target: { pciBdf: bdf }, placement: "node", collector: "linux.pci_sysfs", source: `/sys/bus/pci/devices/${bdf}`,
       facts: [{ key: "pci.vendor_id", value: bdf === "0000:02:00.0" ? "0x15b3" : "0x10de", sourceField: "vendor" }]
     }];
+    const calls: string[] = [];
     const runner = async (command: string, args: string[]) => {
+      calls.push(`${command} ${args.join(" ")}`);
       if (command === "ethtool" && args[0] === "-i") return { stdout: "driver: mlx5_core\nfirmware-version: 28.40.1000\nbus-info: 0000:02:00.0\n", stderr: "" };
       if (command === "ethtool") return { stdout: "Speed: 400000Mb/s\nDuplex: Full\nLink detected: yes\n", stderr: "" };
       if (command === "rdma") return { stdout: JSON.stringify([{ ifname: "mlx5_0", port: 1, counters: { rx_write_requests: 7 } }]), stderr: "" };
@@ -29,5 +31,6 @@ describe("optional physical evidence collectors", () => {
     expect(evidence.collectors.find((item) => item.collector === "linux.devlink_info")?.status).toBe("unavailable");
     expect(evidence.collectors.find((item) => item.collector === "linux.ethtool")?.status).toBe("success");
     expect(evidence.observations.some((item) => item.collector === "nvidia.mlxlink")).toBe(true);
+    expect(calls.some((call) => call.startsWith("ethtool -S "))).toBe(true);
   });
 });

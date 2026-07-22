@@ -45,3 +45,7 @@ Collector results distinguish `success`, `partial`, `unavailable`, and `failed`,
 ## Diagnostics
 
 Diagnostics have a stable code, severity (`info`, `warning`, `error`), message, optional entity/source reference, and deterministic ID. Errors describe invalid contract or unusable input. Warnings describe partial or unsupported observations. Diagnostics are data and render with the snapshot; partial collection does not prevent rendering unless no topology root can be recovered.
+
+## Troubleshooting analysis
+
+Path dossiers and findings are deterministic views computed from the canonical snapshot; they do not mutate or extend the durable schema. A dossier contains the known containment route, endpoint locality status, scoped findings, exact supporting facts, uncertainty language, and a verification command. Rules may identify reported link downgrades, nonzero error evidence, RDMA/netdev state disagreement, unhealthy driver reporters, unknown NUMA locality, shared immediate bridges, and incomplete collection. These findings describe evidence to investigate and never claim measured congestion or root cause.

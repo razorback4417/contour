@@ -53,6 +53,16 @@ export function parseEttoolDriverText(text: string, ifname: string): EvidenceObs
   return { target: { ifname }, placement: "node", collector: "linux.ethtool", source: `command:ethtool -i ${ifname}`, facts };
 }
 
+export function parseEttoolStatisticsText(text: string, ifname: string): EvidenceObservation {
+  const facts = text.split(/\r?\n/).flatMap((line): EvidenceFactInput[] => {
+    const match = line.match(/^\s*([^:]+):\s*(-?\d+)\s*$/);
+    if (!match || !/(?:error|discard|drop|out_of_buffer|uncorrected|corrected|crc|pause|fec)/i.test(match[1])) return [];
+    const value = Number(match[2]);
+    return value === 0 ? [] : [{ key: `ethernet.counter.${slug(match[1])}`, value, rawValue: match[2], sourceField: match[1].trim() }];
+  }).sort((a, b) => a.key.localeCompare(b.key)).slice(0, 16);
+  return { target: { ifname }, placement: "node", collector: "linux.ethtool", source: `command:ethtool -S ${ifname}`, facts };
+}
+
 export function parseRdmaStatisticJson(json: string): EvidenceObservation[] {
   const value = parseJson(json, "rdma statistic");
   return records(value).flatMap((item) => {

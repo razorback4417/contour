@@ -1,6 +1,6 @@
 # Contour
 
-Contour is a deterministic Linux system-topology explorer. It collects CPU, NUMA, PCIe, GPU, NIC, RDMA, and storage relationships, then opens a local browser UI for inspection, search, path tracing, provenance, and SVG/JSON export.
+Contour is a deterministic Linux system-topology explorer. It collects CPU, NUMA, PCIe, GPU, NIC, RDMA, and storage relationships, then opens a local browser UI for inspection, evidence-backed path dossiers, prioritized findings, provenance, and SVG/JSON export.
 
 ![Contour overview showing question-oriented I/O and CPU/NUMA entry points](.github/assets/contour-overview.png)
 
@@ -15,7 +15,7 @@ Contour is a deterministic Linux system-topology explorer. It collects CPU, NUMA
 | Shows the complete hierarchy at once | Starts with I/O or CPU/NUMA questions and reveals one branch at a time |
 | Requires visual scanning for a device | Searches models, interfaces, RDMA names, and PCI BDFs |
 | Primarily presents containment | Correlates PCI devices, netdevs, RDMA ports, NUMA evidence, and known paths |
-| Produces a picture | Preserves exact facts and provenance, then exports deterministic JSON and SVG |
+| Produces a picture | Produces an evidence-backed route dossier with exact verification commands |
 
 ### Why it matters
 
@@ -100,6 +100,7 @@ contour topology.xml
 - Open a summarized I/O branch from the selected node's right panel.
 - Search by model, device class, interface, RDMA name, or PCI BDF.
 - Choose endpoint A and endpoint B to highlight their known containment path.
+- Inspect the path dossier for hop-by-hop identity, explicit NUMA evidence, scoped findings, uncertainty, and verification commands.
 - Export the canonical snapshot or current deterministic SVG from the browser.
 
 Edges represent observed or derived topology facts. When sources provide it, the inspector shows PCIe negotiated/capable width and speed, Ethernet link/FEC state, RDMA counters, driver health, and optional NVIDIA evidence. Counters and topology do not by themselves prove congestion; unknown information remains distinct from absent information.
@@ -117,7 +118,7 @@ Use `npm run dev` for UI development. The durable topology contract and collecto
 
 ## Current limits
 
-Live collection combines hwloc XML, Linux PCI/network sysfs, iproute2, ethtool, RDMA statistics, devlink health, and optional NVIDIA XML/`mlxlink` evidence. Direct NVML, NVMe subsystem enrichment, continuous telemetry, and fabric-wide topology remain planned. Some driver health, module, and `mlxlink` data may require permissions Contour does not request automatically.
+Live collection combines hwloc XML, Linux PCI/network/InfiniBand sysfs, iproute2, ethtool link and selected nonzero counters, RDMA device/link/statistics data, devlink port/health data, and optional NVIDIA XML/`mlxlink` evidence. Findings are deterministic checks over one snapshot, not proof of congestion or current failure. Direct NVML, NVMe subsystem enrichment, counter deltas, and fabric-wide topology remain planned. Some driver health, module, and `mlxlink` data may require permissions Contour does not request automatically.
 
 Snapshots may contain identifying hardware or environment data such as hostnames, interfaces, PCI identifiers, GUIDs, serials, and source paths. Review them before sharing.
 

@@ -36,18 +36,47 @@ export function enrichLinuxNetwork(input: TopologySnapshot, raw: LinuxNetworkObs
     interfaceByName.set(item.ifname, node);
   }
 
+  for (const port of raw.devlinkPorts) {
+    if (!port.netdev) continue;
+    const node = interfaceByName.get(port.netdev);
+    if (!node) continue;
+    node.facts["devlink.port.name"] = fact(port.name, "linux.devlink_port", "port key");
+    if (port.flavour) node.facts["devlink.port.flavour"] = fact(port.flavour, "linux.devlink_port", "flavour");
+    if (port.port !== undefined) node.facts["devlink.port.index"] = fact(port.port, "linux.devlink_port", "port");
+    if (port.type) node.facts["devlink.port.type"] = fact(port.type, "linux.devlink_port", "type");
+    if (port.splittable !== undefined) node.facts["devlink.port.splittable"] = fact(port.splittable, "linux.devlink_port", "splittable");
+    node.facts = sortRecord(node.facts);
+  }
+
   const rdmaByName = new Map<string, TopologyNode>();
+  const infinibandByName = new Map(raw.infiniband.map((item) => [item.device, item]));
+  const rawDeviceByName = new Map(raw.rdmaDevices.map((item) => [item.device, item]));
+  const ensureRdmaDevice = (name: string, networkInterface?: TopologyNode): TopologyNode => {
+    const sysfs = infinibandByName.get(name);
+    const sysfsBacking = sysfs?.pciBdf ? snapshot.nodes.find((node) => node.facts.pci_bdf?.value === sysfs.pciBdf) : undefined;
+    const networkBackingEdge = networkInterface ? snapshot.edges.find((edge) => edge.kind === "backed_by" && edge.source === networkInterface.id) : undefined;
+    const backing = sysfsBacking ?? (networkBackingEdge ? nodeById.get(networkBackingEdge.target) : undefined);
+    const parentId = backing?.id ?? host.id;
+    let device = rdmaByName.get(name) ?? snapshot.nodes.find((node) => node.kind === "rdma_device" && node.facts["linux.rdma_name"]?.value === name);
+    if (!device) {
+      device = { id: stableId("rdma_device", `${parentId}:${name}`), kind: "rdma_device", label: name, parentId, facts: {} };
+      snapshot.nodes.push(device); nodeById.set(device.id, device); addEdge(snapshot, "contains", parentId, device.id, provenance("linux.rdma_device", "RDMA device", name));
+    }
+    rdmaByName.set(name, device);
+    device.facts["linux.rdma_name"] = fact(name, "linux.rdma_device", "ifname");
+    const rawDevice = rawDeviceByName.get(name);
+    if (rawDevice?.ifindex !== undefined) device.facts["linux.rdma_ifindex"] = fact(rawDevice.ifindex, "linux.rdma_device", "ifindex");
+    if (rawDevice?.nodeType) device.facts["rdma.node_type"] = fact(rawDevice.nodeType, "linux.rdma_device", "node_type");
+    if (rawDevice?.firmware) device.facts["rdma.firmware"] = fact(rawDevice.firmware, "linux.rdma_device", "fw");
+    if (sysfs?.devicePath) device.facts["sysfs_device_path"] = fact(sysfs.devicePath, "linux.infiniband_sysfs", `/sys/class/infiniband/${name}/device`);
+    if (backing) addEdge(snapshot, "backed_by", device.id, backing.id, provenance(sysfsBacking ? "linux.infiniband_sysfs" : "linux.rdma_link", sysfsBacking ? "resolved device path" : "netdev correlation", sysfs?.devicePath ?? networkInterface?.label ?? name));
+    device.facts = sortRecord(device.facts);
+    return device;
+  };
+  for (const item of raw.rdmaDevices) { const link = raw.rdmaLinks.find((candidate) => candidate.device === item.device && candidate.netdev); ensureRdmaDevice(item.device, link?.netdev ? interfaceByName.get(link.netdev) : undefined); }
   for (const link of raw.rdmaLinks) {
     const networkInterface = link.netdev ? interfaceByName.get(link.netdev) : undefined;
-    const backingEdge = networkInterface ? snapshot.edges.find((edge) => edge.kind === "backed_by" && edge.source === networkInterface.id) : undefined;
-    const parentId = backingEdge?.target ?? host.id;
-    let device = rdmaByName.get(link.device) ?? snapshot.nodes.find((node) => node.kind === "rdma_device" && node.facts["linux.rdma_name"]?.value === link.device);
-    if (!device) {
-      device = { id: stableId("rdma_device", `${parentId}:${link.device}`), kind: "rdma_device", label: link.device, parentId, facts: { "linux.rdma_name": fact(link.device, "linux.rdma_link", "ifname") } };
-      snapshot.nodes.push(device); nodeById.set(device.id, device); rdmaByName.set(link.device, device);
-      addEdge(snapshot, "contains", parentId, device.id, provenance("linux.rdma_link", "RDMA device", link.device));
-      if (backingEdge) addEdge(snapshot, "backed_by", device.id, backingEdge.target, provenance("linux.rdma_link", "netdev correlation", link.netdev!));
-    }
+    const device = ensureRdmaDevice(link.device, networkInterface);
     const port: TopologyNode = { id: stableId("network_port", `${device.id}:${link.port}`), kind: "network_port", label: `${link.device} port ${link.port}`, parentId: device.id, facts: { port: fact(link.port, "linux.rdma_link", "port"), ...(link.state ? { state: fact(link.state, "linux.rdma_link", "state") } : {}), ...(link.physicalState ? { physical_state: fact(link.physicalState, "linux.rdma_link", "physical_state") } : {}) } };
     if (!nodeById.has(port.id)) { snapshot.nodes.push(port); nodeById.set(port.id, port); addEdge(snapshot, "exposes", device.id, port.id, provenance("linux.rdma_link", "RDMA port", link.port)); }
     if (networkInterface) addEdge(snapshot, "connected_to", port.id, networkInterface.id, provenance("linux.rdma_link", "netdev", link.netdev!));
@@ -63,6 +92,6 @@ export function enrichLinuxNetwork(input: TopologySnapshot, raw: LinuxNetworkObs
 }
 
 function fact(value: FactValue, collector: string, field: string): TopologyFact { return { value, state: "observed", provenance: provenance(collector, field, value) }; }
-function provenance(collector: string, field: string, value: FactValue): ProvenanceRecord[] { return [{ collector, source: collector.startsWith("linux.sysfs") ? "/sys/class" : `command:${collector}`, sourceField: field, rawValue: value, normalizedValue: value, method: "observed" }]; }
+function provenance(collector: string, field: string, value: FactValue): ProvenanceRecord[] { return [{ collector, source: collector.includes("sysfs") ? "/sys/class" : `command:${collector}`, sourceField: field, rawValue: value, normalizedValue: value, method: "observed" }]; }
 function addEdge(snapshot: TopologySnapshot, kind: EdgeKind, source: string, target: string, records: ProvenanceRecord[]) { const id = stableId("edge", `${kind}:${source}:${target}`); if (!snapshot.edges.some((edge) => edge.id === id)) snapshot.edges.push({ id, kind, source, target, facts: {}, provenance: records } as TopologyEdge); }
 function sortRecord<T>(record: Record<string, T>): Record<string, T> { return Object.fromEntries(Object.entries(record).sort(([a], [b]) => a.localeCompare(b))); }

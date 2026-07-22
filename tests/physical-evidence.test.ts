@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { parseHwlocXml } from "../src/adapters/hwloc";
-import { parseDevlinkHealthJson, parseDevlinkInfoJson, parseEttoolText, parseMlxlinkJson, parseNvidiaSmiXml, parseRdmaStatisticJson, type EvidenceObservation } from "../src/adapters/evidence";
+import { parseDevlinkHealthJson, parseDevlinkInfoJson, parseEttoolStatisticsText, parseEttoolText, parseMlxlinkJson, parseNvidiaSmiXml, parseRdmaStatisticJson, type EvidenceObservation } from "../src/adapters/evidence";
 import { normalizeHwloc } from "../src/normalize/hwloc";
 import { enrichPhysicalEvidence } from "../src/normalize/evidence";
 import { assessLinkEvidence, findLinkEvidence } from "../src/ui/evidence";
@@ -38,6 +38,7 @@ describe("physical evidence boundary", () => {
 
   it("parses generic link, RDMA, devlink, NVIDIA, and mlxlink evidence", () => {
     expect(keys(parseEttoolText("Speed: 400000Mb/s\nDuplex: Full\nAuto-negotiation: on\nLink detected: yes", "eth0"))).toEqual(expect.arrayContaining(["ethernet.speed_mbps", "ethernet.link_detected"]));
+    expect(keys(parseEttoolStatisticsText("NIC statistics:\n rx_crc_errors_phy: 2\n rx_bytes_phy: 999\n rx_out_of_buffer: 7\n tx_errors: 0\n", "eth0"))).toEqual(["ethernet.counter.rx_crc_errors_phy", "ethernet.counter.rx_out_of_buffer"]);
     expect(keys(parseRdmaStatisticJson(JSON.stringify([{ ifname: "mlx5_0", port: 1, counters: { rx_write_requests: 7 } }]))[0])).toContain("rdma.counter.rx_write_requests");
     expect(keys(parseRdmaStatisticJson(JSON.stringify([{ ifname: "mlx5_0", port: 1, rx_write_requests: 7, out_of_buffer: 0 }]))[0])).toEqual(expect.arrayContaining(["rdma.counter.rx_write_requests", "rdma.counter.out_of_buffer"]));
     expect(keys(parseDevlinkInfoJson(JSON.stringify({ info: { "pci/0000:02:00.0": { driver: "mlx5_core", versions: { running: { "fw.version": "28.40.1000" } } } } }))[0])).toEqual(expect.arrayContaining(["devlink.driver", "devlink.version.running.fw_version"]));
