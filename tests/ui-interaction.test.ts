@@ -28,6 +28,15 @@ describe("progressive topology interaction", () => {
     expect(cssRule(".question-card")).toMatch(/padding:\s*22px\s+12px/);
   });
 
+  it("uses a vertically centered product mark and hostname", () => {
+    expect(cssRule(".brand")).toMatch(/align-items:\s*center/);
+    expect(cssRule(".brand")).toMatch(/height:\s*100%/);
+    expect(cssRule(".brand-mark")).toMatch(/width:\s*20px/);
+    expect(cssRule(".brand-mark")).toMatch(/height:\s*20px/);
+    expect(cssRule(".host-label")).toMatch(/height:\s*20px/);
+    expect(cssRule(".host-label")).toMatch(/font:\s*10px\/20px/);
+  });
+
   function cssRule(selector: string): string {
     const start = styles.indexOf(`${selector} {`);
     return start < 0 ? "" : styles.slice(start, styles.indexOf("}", start) + 1);
@@ -46,6 +55,9 @@ describe("progressive topology interaction", () => {
     expect(container.querySelector(".controls")).toBeNull();
     expect(container.querySelector(".details")).toBeNull();
     expect(container.querySelector(".overview-findings")).toBeNull();
+    expect(container.querySelector(".brand-mark")?.getAttribute("aria-label")).toBe("Contour");
+    expect(container.querySelector(".brand strong")).toBeNull();
+    expect(container.querySelector(".host-label")?.textContent).toBeTruthy();
 
     act(() => root.unmount());
     container.remove();

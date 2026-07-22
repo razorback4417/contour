@@ -16,6 +16,10 @@ import { projectTopologyView, searchTopologyNodes, topologyOverview, type Topolo
 
 type WorkspaceMode = "overview" | TopologyViewMode;
 const colors: Partial<Record<NodeKind, string>> = { host: "#9aa5b1", numa_node: "#d7a84b", cpu_package: "#7ea2c9", cpu_core: "#66809b", cache: "#879db2", memory_region: "#b18b55", pci_bridge: "#806fa6", pci_endpoint: "#77808b", gpu: "#68a982", nic: "#53a7ad", rdma_device: "#4f98a5", network_interface: "#5c9298", storage_device: "#b37f67" };
+const nodeColorKey = [
+  ["System host", colors.host], ["CPU & cache", colors.cpu_package], ["Memory & NUMA", colors.numa_node],
+  ["PCI hierarchy", colors.pci_bridge], ["GPU", colors.gpu], ["Network & RDMA", colors.nic], ["Storage", colors.storage_device],
+] as const;
 
 function load(content: string, source: string): TopologySnapshot {
   return source.toLowerCase().endsWith(".json") ? parseSnapshotJson(content) : normalizeHwloc(parseHwlocXml(content, source));
@@ -133,7 +137,7 @@ export function App() {
 
   return <div className="shell">
     <header className="app-header">
-      <div className="brand"><strong>Contour</strong><span>{hostLabel}</span></div>
+      <div className="brand"><ContourMark/><span className="host-label">{hostLabel}</span></div>
       <nav className="primary-nav" aria-label="Topology views"><button className={mode === "overview" ? "active" : ""} onClick={() => { setMode("overview"); setActiveNodeId(undefined); }}>Overview</button><button className={mode === "io" ? "active" : ""} onClick={() => openMode("io")}>I/O</button><button className={mode === "compute" ? "active" : ""} onClick={() => openMode("compute")}>CPU &amp; NUMA</button></nav>
       <div className="header-actions">
         <label className="button open-button">Open snapshot<input type="file" accept=".xml,.json,text/xml,application/json" onChange={openFile}/></label>
@@ -146,7 +150,7 @@ export function App() {
         <section><label className="section-label">FIND HARDWARE</label><div className="search-box" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setSearchOpen(false); }}><input className="search" role="combobox" aria-autocomplete="list" aria-expanded={searchOpen && searchSuggestions.length > 0} aria-controls="hardware-search-options" aria-activedescendant={searchOpen && searchSuggestions[activeSuggestion] ? `hardware-option-${activeSuggestion}` : undefined} value={query} onFocus={() => setSearchOpen(Boolean(query.trim()))} onChange={(event) => updateSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "ArrowDown" && searchSuggestions.length) { event.preventDefault(); setSearchOpen(true); setActiveSuggestion((current) => (current + 1) % searchSuggestions.length); } else if (event.key === "ArrowUp" && searchSuggestions.length) { event.preventDefault(); setSearchOpen(true); setActiveSuggestion((current) => (current - 1 + searchSuggestions.length) % searchSuggestions.length); } else if (event.key === "Enter" && searchOpen && searchSuggestions[activeSuggestion]) { event.preventDefault(); selectSearchNode(searchSuggestions[activeSuggestion]); } else if (event.key === "Escape") setSearchOpen(false); }} placeholder="Try GPU, mlx5, enp, 0000:…"/>{searchOpen && searchSuggestions.length > 0 && <div className="search-options" id="hardware-search-options" role="listbox">{searchSuggestions.map((node, index) => <button type="button" className={`search-option ${index === activeSuggestion ? "active" : ""}`} id={`hardware-option-${index}`} role="option" aria-selected={index === activeSuggestion} key={node.id} onMouseEnter={() => setActiveSuggestion(index)} onClick={() => selectSearchNode(node)}><span><b>{node.label}</b><small>{node.kind.replaceAll("_", " ")}</small></span><code>{searchIdentifier(node)}</code></button>)}</div>}</div><p className="control-note">Type a device, interface, model, or PCI BDF. Choose a result to reveal its path and inspect it.</p></section>
         <section><label className="section-label">NUMA EVIDENCE</label><select value={numa} onChange={(event) => setNuma(event.target.value)}><option value="all">No highlight</option>{numaNodes.map((node) => <option key={node.id} value={node.id}>{node.label}</option>)}</select></section>
         <details className="panel-disclosure"><summary><span>Collection</span><b>{successfulCollectors}/{snapshot.collectors.length}</b></summary><section className="status">{snapshot.collectors.map((collector) => <div key={collector.collector}><i className={collector.status}/><span>{collector.collector}</span><b>{collector.status}</b></div>)}{snapshot.diagnostics.map((item) => <div key={item.id} title={item.message}><i className={item.severity}/><span>{item.code}</span><b>{item.severity}</b></div>)}</section></details>
-        <details className="panel-disclosure legend"><summary><span>Edge key</span><b>5 types</b></summary><div><i className="contains"/><span><b>contains</b> source hierarchy</span></div><div><i className="backed"/><span><b>backed by</b> OS → PCI device</span></div><div><i className="exposes"/><span><b>exposes</b> device → port</span></div><div><i className="connected"/><span><b>connected to</b> RDMA port ↔ netdev</span></div><div><i className="local"/><span><b>local to</b> explicit NUMA evidence</span></div><p>Known topology facts, not measured traffic or bandwidth.</p></details>
+        <details className="panel-disclosure legend"><summary><span>Visual key</span><b>roles + links</b></summary><span className="legend-label">NODE ROLE</span>{nodeColorKey.map(([label, color]) => <div key={label}><i className="role" style={{ background: color }}/><span>{label}</span></div>)}<span className="legend-label relationships">RELATIONSHIPS</span><div><i className="contains"/><span><b>contains</b> source hierarchy</span></div><div><i className="backed"/><span><b>backed by</b> OS → PCI device</span></div><div><i className="exposes"/><span><b>exposes</b> device → port</span></div><div><i className="connected"/><span><b>connected to</b> RDMA port ↔ netdev</span></div><div><i className="local"/><span><b>local to</b> explicit NUMA evidence</span></div><p>Color identifies hardware role; lines show known topology. Neither represents health or measured performance.</p></details>
       </aside>}
       <section className={`viewport ${mode === "overview" ? "overview-workspace" : ""}`}>
         {mode === "overview" ? loadingInitialSnapshot ? <LoadingWorkspace/> : <OverviewWorkspace snapshot={snapshot} overview={overview} onOpen={openMode}/> : <>
@@ -170,6 +174,10 @@ export function App() {
 
 function LoadingWorkspace() {
   return <div className="loading-workspace"><label className="section-label">LOADING SNAPSHOT</label><h1>Inspecting this machine…</h1><p>Waiting for the canonical topology before enabling exploration.</p></div>;
+}
+
+function ContourMark() {
+  return <svg className="brand-mark" viewBox="0 0 24 24" role="img" aria-label="Contour"><path d="M3.5 12c0-5 3.1-8 8-8 5.7 0 9 3 9 8 0 4.8-2.8 8-8 8-5.7 0-9-3-9-8Z"/><path d="M7 12c0-3.1 2-5 5.1-5 3.5 0 5.9 1.9 5.9 5 0 3-1.9 5-5.3 5C9.1 17 7 15 7 12Z"/><path d="M10 12c0-1.5 1-2.5 2.6-2.5 1.5 0 2.5 1 2.5 2.5s-.9 2.5-2.5 2.5S10 13.5 10 12Z"/></svg>;
 }
 
 function OverviewWorkspace({ snapshot, overview, onOpen }: { snapshot: TopologySnapshot; overview: ReturnType<typeof topologyOverview>; onOpen: (mode: TopologyViewMode) => void }) {

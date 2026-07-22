@@ -31,9 +31,9 @@ button.primary { border-color: #887043; background: #b79553; color: #11100d; fon
   background: #0e1113;
   padding: 0 14px 0 18px;
 }
-.brand { display: flex; align-items: center; min-width: 0; gap: 13px; }
-.brand strong { color: #f0f2f3; font-size: 14px; font-weight: 650; letter-spacing: -.01em; }
-.brand span { overflow: hidden; color: #6f7880; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.brand { display: flex; align-items: center; min-width: 0; height: 100%; gap: 10px; }
+.brand-mark { width: 20px; height: 20px; flex: none; fill: none; stroke: #c19e59; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.3; }
+.host-label { display: flex; align-items: center; overflow: hidden; height: 20px; color: #778189; font: 10px/20px ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
 .primary-nav { display: flex; height: 100%; gap: 25px; }
 .primary-nav button { position: relative; border: 0; background: transparent; color: #737d85; padding: 0; font-size: 11px; }
 .primary-nav button:hover { color: #d7dce0; }
@@ -83,7 +83,10 @@ aside section { margin-bottom: 22px; }
 .status i.error, .status i.failed { background: #b45f68; }
 .status b { color: #69737c; font-weight: 500; }
 .legend > div { display: grid; grid-template-columns: 25px 1fr; gap: 7px; align-items: center; margin: 8px 1px; color: #7f8a93; font: 9px/1.4 ui-monospace, monospace; }
+.legend-label { display: block; margin: 4px 1px 9px; color: #5f6971; font: 7px ui-monospace, monospace; letter-spacing: .1em; }
+.legend-label.relationships { margin-top: 15px; padding-top: 11px; border-top: 1px solid #242a2f; }
 .legend i { display: block; width: 23px; border-top: 1px solid #4a535c; }
+.legend i.role { width: 7px; height: 7px; margin-left: 8px; border: 0; border-radius: 1px; }
 .legend i.backed { border-color: #4f98a5; }
 .legend i.exposes { border-color: #6b91b3; border-top-style: dashed; }
 .legend i.connected { border-color: #65a5a8; border-top-style: dotted; }
