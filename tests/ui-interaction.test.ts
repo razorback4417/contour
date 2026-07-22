@@ -63,6 +63,26 @@ describe("progressive topology interaction", () => {
     container.remove();
   });
 
+  it("returns to the overview from the product mark", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("Not found", { status: 404, headers: { "content-type": "text/plain" } })));
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => root.render(createElement(App)));
+
+    act(() => container.querySelectorAll<HTMLButtonElement>(".question-card")[0]!.click());
+    expect(container.querySelector("main")?.classList.contains("inspect-mode")).toBe(true);
+
+    const home = container.querySelector<HTMLButtonElement>("button.brand")!;
+    expect(home?.getAttribute("aria-label")).toBe("Return to topology overview");
+    act(() => home.click());
+    expect(container.querySelector("main")?.classList.contains("overview-mode")).toBe(true);
+    expect(container.querySelectorAll(".question-card")).toHaveLength(2);
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
   it("does not expose a temporary fixture while the server snapshot is loading", async () => {
     let resolveFetch!: (response: Response) => void;
     vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => { resolveFetch = resolve; })));

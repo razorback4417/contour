@@ -137,7 +137,7 @@ export function App() {
 
   return <div className="shell">
     <header className="app-header">
-      <div className="brand"><ContourMark/><span className="host-label">{hostLabel}</span></div>
+      <button type="button" className="brand" aria-label="Return to topology overview" onClick={() => { setMode("overview"); setActiveNodeId(undefined); }}><ContourMark/><span className="host-label">{hostLabel}</span></button>
       <nav className="primary-nav" aria-label="Topology views"><button className={mode === "overview" ? "active" : ""} onClick={() => { setMode("overview"); setActiveNodeId(undefined); }}>Overview</button><button className={mode === "io" ? "active" : ""} onClick={() => openMode("io")}>I/O</button><button className={mode === "compute" ? "active" : ""} onClick={() => openMode("compute")}>CPU &amp; NUMA</button></nav>
       <div className="header-actions">
         <label className="button open-button">Open snapshot<input type="file" accept=".xml,.json,text/xml,application/json" onChange={openFile}/></label>
