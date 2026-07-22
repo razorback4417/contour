@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<topology version="2.0">
+  <object type="Machine" os_index="0">
+    <info name="HostName" value="accelerator-fixture"/>
+    <info name="Architecture" value="aarch64"/>
+    <object type="Package" os_index="0">
+      <object type="NUMANode" os_index="0" local_memory="137438953472">
+        <object type="L3Cache" os_index="0" cache_size="67108864" depth="3">
+          <object type="Core" os_index="0"/><object type="Core" os_index="1"/><object type="Core" os_index="2"/><object type="Core" os_index="3"/>
+        </object>
+        <object type="PCIBridge" pci_busid="0000:00:00.0" bridge_depth="0">
+          <object type="PCIDev" pci_busid="0000:01:00.0" pci_type="0302" name="Accelerator">
+            <object type="OSDev" name="gpu0" subtype="GPU"/>
+          </object>
+          <object type="PCIBridge" pci_busid="0000:02:00.0" bridge_depth="1">
+            <object type="PCIDev" pci_busid="0000:03:00.0" pci_type="0200" name="Network controller">
+              <object type="OSDev" name="enp3s0f0" subtype="Network"/>
+              <object type="OSDev" name="mlx5_0" subtype="OpenFabrics"/>
+            </object>
+            <object type="PCIDev" pci_busid="0000:04:00.0" pci_type="0108" name="NVMe controller">
+              <object type="OSDev" name="nvme0n1" subtype="Block"/>
+            </object>
+          </object>
+        </object>
+      </object>
+      <object type="NUMANode" os_index="1" local_memory="103079215104">
+        <object type="L3Cache" os_index="1" cache_size="67108864" depth="3">
+          <object type="Core" os_index="4"/><object type="Core" os_index="5"/><object type="Core" os_index="6"/><object type="Core" os_index="7"/>
+        </object>
+        <object type="PCIBridge" pci_busid="0001:00:00.0" bridge_depth="0">
+          <object type="PCIDev" pci_busid="0001:01:00.0" pci_type="0302" name="Accelerator">
+            <object type="OSDev" name="gpu1" subtype="GPU"/>
+          </object>
+          <object type="PCIDev" pci_busid="0001:02:00.0" pci_type="0200" name="Network controller">
+            <object type="OSDev" name="enp2s0f0" subtype="Network"/>
+            <object type="OSDev" name="mlx5_1" subtype="OpenFabrics"/>
+          </object>
+        </object>
+      </object>
+    </object>
+  </object>
+</topology>

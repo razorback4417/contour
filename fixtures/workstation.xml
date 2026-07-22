@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<topology version="2.0">
+  <object type="Machine" os_index="0">
+    <info name="HostName" value="workstation-fixture"/>
+    <object type="Package" os_index="0">
+      <object type="NUMANode" os_index="0" local_memory="34359738368">
+        <object type="L3Cache" os_index="0" cache_size="16777216" depth="3">
+          <object type="Core" os_index="0"/>
+          <object type="Core" os_index="1"/>
+        </object>
+        <object type="PCIBridge" pci_busid="0000:00:01.0" bridge_depth="0">
+          <object type="PCIDev" pci_busid="0000:01:00.0" pci_type="0300" name="Display controller">
+            <object type="OSDev" name="card0" subtype="GPU"/>
+          </object>
+          <object type="PCIDev" pci_busid="0000:02:00.0" pci_type="0200" name="Ethernet controller">
+            <object type="OSDev" name="eth0" subtype="Network"/>
+          </object>
+          <object type="PCIDev" pci_busid="0000:03:00.0" pci_type="0108" name="NVMe controller">
+            <object type="OSDev" name="nvme0n1" subtype="Block"/>
+          </object>
+        </object>
+      </object>
+    </object>
+  </object>
+</topology>
