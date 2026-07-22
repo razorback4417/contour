@@ -19,7 +19,11 @@ export function renderTopologySvg(snapshot: TopologySnapshot, layout: TopologyLa
   const edges = layout.edges.filter((item) => {
     const edge = edgeById.get(item.id);
     return edge && edge.kind !== "local_to" && visible.has(edge.source) && visible.has(edge.target) && item.path;
-  }).map((item) => `    <path d="${item.path}" fill="none" stroke="#39414a" stroke-width="1.25" vector-effect="non-scaling-stroke"/>`).join("\n");
+  }).map((item) => {
+    const edge = edgeById.get(item.id)!;
+    const style = edgeStyle(edge.kind);
+    return `    <path d="${item.path}" fill="none" stroke="${style.stroke}" stroke-width="1.25"${style.dash ? ` stroke-dasharray="${style.dash}"` : ""} vector-effect="non-scaling-stroke"/>`;
+  }).join("\n");
   const nodes = [...visible].filter((id) => byId.has(id) && layoutById.has(id)).sort().map((id) => {
     const node = byId.get(id)!;
     const box = layoutById.get(id)!;
@@ -48,3 +52,10 @@ function escapeXml(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }
 function truncate(value: string, max: number): string { return value.length <= max ? value : `${value.slice(0, max - 1)}…`; }
+function edgeStyle(kind: string): { stroke: string; dash?: string } {
+  if (kind === "backed_by") return { stroke: "#4f98a5" };
+  if (kind === "exposes") return { stroke: "#6b91b3", dash: "3 2" };
+  if (kind === "connected_to") return { stroke: "#65a5a8", dash: "1 3" };
+  if (kind === "local_to") return { stroke: "#b18a42", dash: "4 3" };
+  return { stroke: "#39414a" };
+}

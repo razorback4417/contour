@@ -11,3 +11,7 @@ export function panFromDrag(origin: DragOrigin, pointerX: number, pointerY: numb
     y: origin.viewY + pointerY - origin.pointerY
   };
 }
+
+export function zoomFromWheel(scale: number, deltaY: number): number {
+  return Math.min(2.5, Math.max(0.3, scale * (deltaY > 0 ? 0.9 : 1.1)));
+}

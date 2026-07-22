@@ -2,16 +2,19 @@
 
 This is the source-prioritized collector plan as of 2026-07-21. Each command must live behind its own collector/adapter and record status, version, stderr, and collection time. Correlation must use explicit keys such as PCI BDF, sysfs path, interface index/name, or RDMA device relationship.
 
-## Priority 0: implemented source
+## Implemented sources
 
-- `lstopo --of xml`: the base CPU, cache, NUMA, PCI, and OS-device containment tree. hwloc explicitly supports exporting XML on one system and loading it on another. Contour currently loads this XML but does not invoke the command itself.
+- `lstopo --of xml`: the base CPU, cache, NUMA, PCI, and OS-device containment tree. hwloc explicitly supports exporting XML on one system and loading it on another. Bare `contour` invokes it locally; XML files remain loadable offline.
+- `ip -details -json link show`: interface identity, state, MTU, queue counts, type, and physical port name.
+- `/sys/class/net/<ifname>/device`: explicit interface-to-device path, PCI BDF when the path ends in one, and kernel NUMA affinity when non-negative.
+- `rdma -j link show`: optional RDMA device/port state and explicit RDMA-port-to-netdev correlation. An unavailable command becomes an unavailable collector result rather than an empty RDMA topology.
 
 ## Priority 1: smallest useful enrichment
 
-- `/sys/devices`, `/sys/bus/pci`, and `/sys/class/*`: stable Linux relationships and attributes with no human-output parser. This should become the baseline for hosts where hwloc is unavailable.
+- Broader `/sys/devices`, `/sys/bus/pci`, and `/sys/class/*` coverage: stable Linux relationships and attributes with no human-output parser. This should become the baseline for hosts where hwloc is unavailable.
 - `lspci -D -mm -nn -k` plus selected `-vv` fields: PCI identity, class/vendor/device IDs, driver, link capability/status, and bridge detail. Prefer sysfs for topology and use lspci as enrichment.
-- `ip -details -json link` and `ip -json address`: interface identity and relationships. JSON avoids display parsing.
-- `rdma -j link show` and `rdma -j dev show`: RDMA device/port/netdev relationships when supported.
+- `ip -json address`: optional address inventory, with a privacy policy before snapshots retain addresses.
+- `rdma -j dev show`: device-level RDMA enrichment beyond the implemented link/port relationship.
 - `ethtool --json` for supported queries, especially link modes and driver information. JSON coverage is partial, so every subcommand needs a capability result.
 - `nvme list -o json` and `nvme list-subsys -o json`: controller, namespace, and subsystem relationships.
 

@@ -15,10 +15,11 @@ const kindRank: Record<NodeKind, number> = {
   rdma_device: 12, network_port: 13, network_interface: 14, storage_device: 15
 };
 
-export function layoutTopology(snapshot: TopologySnapshot): TopologyLayout {
-  const nodeById = new Map(snapshot.nodes.map((node) => [node.id, node]));
+export function layoutTopology(snapshot: TopologySnapshot, visibleNodeIds?: ReadonlySet<string>): TopologyLayout {
+  const includedNodes = visibleNodeIds ? snapshot.nodes.filter((node) => visibleNodeIds.has(node.id)) : snapshot.nodes;
+  const nodeById = new Map(includedNodes.map((node) => [node.id, node]));
   const children = new Map<string, string[]>();
-  for (const node of snapshot.nodes) {
+  for (const node of includedNodes) {
     if (node.parentId && nodeById.has(node.parentId)) {
       const list = children.get(node.parentId) ?? [];
       list.push(node.id);
@@ -40,10 +41,10 @@ export function layoutTopology(snapshot: TopologySnapshot): TopologyLayout {
     row += 1;
     for (const child of children.get(id) ?? []) visit(child, depth + 1);
   }
-  visit(snapshot.hostId, 0);
-  for (const node of snapshot.nodes.filter((node) => !placed.some((item) => item.id === node.id))) visit(node.id, 0);
+  if (nodeById.has(snapshot.hostId)) visit(snapshot.hostId, 0);
+  for (const node of includedNodes.filter((node) => !placed.some((item) => item.id === node.id))) visit(node.id, 0);
   const placedById = new Map(placed.map((node) => [node.id, node]));
-  const layoutEdges = snapshot.edges.map((edge) => {
+  const layoutEdges = snapshot.edges.filter((edge) => nodeById.has(edge.source) && nodeById.has(edge.target)).map((edge) => {
     const source = placedById.get(edge.source);
     const target = placedById.get(edge.target);
     if (!source || !target) return { id: edge.id, path: "" };

@@ -2,10 +2,29 @@
   "name": "contour",
   "version": "0.1.0",
   "private": true,
+  "description": "Deterministic Linux system topology explorer",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "dist",
+    "dist-cli",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/razorback4417/contour.git"
+  },
+  "homepage": "https://github.com/razorback4417/contour#readme",
+  "bin": {
+    "contour": "dist-cli/cli.js"
+  },
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && npm run build:cli",
+    "build:cli": "tsup src/cli.ts --format esm --platform node --out-dir dist-cli --clean",
+    "prepare": "npm run build",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -23,6 +42,7 @@
     "@vitejs/plugin-react": "^4.6.0",
     "jsdom": "^26.1.0",
     "tsx": "^4.20.0",
+    "tsup": "^8.5.0",
     "typescript": "^5.8.3",
     "vite": "^7.0.0",
     "vitest": "^3.2.0"
