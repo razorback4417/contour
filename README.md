@@ -2,9 +2,9 @@
 
 Contour is a deterministic Linux system-topology explorer. It collects CPU, NUMA, PCIe, GPU, NIC, RDMA, and storage relationships, then opens a local browser UI for inspection, evidence-backed path dossiers, prioritized findings, provenance, and SVG/JSON export.
 
-![Contour overview showing question-oriented I/O and CPU/NUMA entry points](.github/assets/contour-overview.png)
+![Contour I/O topology showing a selected NIC, its PCIe path, related RDMA device and interface, provenance, and verification command](.github/assets/contour-overview.png)
 
-*The bundled accelerator fixture. Contour starts with engineering questions, not the complete raw graph.*
+*A sanitized accelerator fixture with one PCIe branch open. Contour reveals the relevant graph progressively, then connects a selected device to exact evidence and verification commands.*
 
 ## Why Contour
 
