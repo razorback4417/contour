@@ -95,10 +95,11 @@ describe("progressive topology interaction", () => {
     act(() => runtimeButton.click());
 
     expect(container.querySelector(".runtime-workspace")).not.toBeNull();
-    expect(container.querySelector(".runtime-heading")?.textContent).toContain("SYNTHETIC FIXTURE");
-    expect(container.querySelector(".runtime-summary")?.textContent).toContain("process executions");
-    expect(container.querySelector(".runtime-columns")?.textContent).toContain("python3");
-    expect(container.querySelector(".runtime-timeline")?.textContent).toContain("tcp connection created");
+    expect(container.querySelector(".runtime-heading")?.textContent).toContain("SYNTHETIC REPLAY");
+    expect(container.querySelector(".runtime-focus-strip")?.textContent).toContain("python3");
+    expect(container.querySelector(".runtime-map")?.textContent).toContain("TCP flow");
+    expect(container.querySelector(".runtime-dossier")?.textContent).toContain("EVIDENCE DOSSIER");
+    expect(container.querySelector(".runtime-sequence")?.textContent).toContain("tcp connection created");
     expect(container.querySelector(".controls")).toBeNull();
     expect(container.querySelector(".details")).toBeNull();
 

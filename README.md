@@ -110,12 +110,14 @@ contour topology.xml
 - Inspect the path dossier for hop-by-hop identity, explicit NUMA evidence, scoped findings, uncertainty, and verification commands.
 - Export the canonical snapshot or current deterministic SVG from the browser.
 
-The **Runtime** view starts with a clearly labeled synthetic Argus fixture.
-Open an Argus JSONL file or run `contour runtime <argus.jsonl>` to replay a
-capture. Runtime relationships retain their evidence basis, and ambiguous
-process identities become diagnostics rather than guessed PID correlations.
-See [`docs/RUNTIME.md`](docs/RUNTIME.md) for the experimental contract and
-current adapter boundary.
+The **Runtime** view turns Argus activity into a process-centered software flow:
+container context, touched files, TCP connections, local interfaces, peer
+endpoints, and the relative evidence sequence behind the graph. Open an Argus
+JSONL file or run `contour runtime <argus.jsonl>` to replay a capture. Runtime
+relationships retain their evidence basis, and ambiguous process identities
+become diagnostics rather than guessed PID correlations. See
+[`docs/RUNTIME.md`](docs/RUNTIME.md) for the experimental contract, network
+topology boundary, and current adapter ownership.
 
 For the receiver deployment, run Contour where ClickHouse is reachable directly
 or through an SSH tunnel:
@@ -127,7 +129,7 @@ contour runtime --clickhouse
 ```
 
 `CLICKHOUSE_URL` defaults to `http://127.0.0.1:8123`; the database defaults to
-`otel`. The reader takes the latest 10,000 stored bodies, restores chronological
+`otel`. The reader takes the latest 500 stored bodies, restores chronological
 order, and passes the raw JSON records to the same Argus normalizer as JSONL
 replay.
 
