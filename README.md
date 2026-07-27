@@ -87,6 +87,7 @@ contour                    # inspect this Linux machine
 contour topology.json      # open a saved Contour snapshot
 contour topology.xml       # open a saved lstopo XML capture
 contour runtime argus.jsonl # replay an Argus activity capture
+contour runtime --clickhouse # read the latest Argus events from ClickHouse
 contour doctor             # check prerequisites
 contour --help             # show normal usage
 contour advanced           # show scripting commands
@@ -115,6 +116,20 @@ capture. Runtime relationships retain their evidence basis, and ambiguous
 process identities become diagnostics rather than guessed PID correlations.
 See [`docs/RUNTIME.md`](docs/RUNTIME.md) for the experimental contract and
 current adapter boundary.
+
+For the receiver deployment, run Contour where ClickHouse is reachable directly
+or through an SSH tunnel:
+
+```bash
+cd deploy/argus-observability
+set -a && . ./.env && set +a
+contour runtime --clickhouse
+```
+
+`CLICKHOUSE_URL` defaults to `http://127.0.0.1:8123`; the database defaults to
+`otel`. The reader takes the latest 10,000 stored bodies, restores chronological
+order, and passes the raw JSON records to the same Argus normalizer as JSONL
+replay.
 
 Edges represent observed or derived topology facts. When sources provide it, the inspector shows PCIe negotiated/capable width and speed, Ethernet link/FEC state, RDMA counters, driver health, and optional NVIDIA evidence. Counters and topology do not by themselves prove congestion; unknown information remains distinct from absent information.
 

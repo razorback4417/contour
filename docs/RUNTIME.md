@@ -8,6 +8,8 @@ only when they share explicit host or interface evidence.
 ## Ownership
 
 - An input adapter owns knowledge of its external wire format and version.
+- The ClickHouse reader owns only the storage query and extraction of raw
+  `Body` strings; it does not interpret Argus fields.
 - The runtime normalizer owns the `contour.runtime/v1` observation contract.
 - The temporal reducer owns entity identity, lifecycle state, and graph edges.
 - The UI consumes normalized captures and never parses Argus fields.
@@ -72,3 +74,15 @@ The browser can also open `.jsonl` Argus records or canonical
 `contour.runtime/v1` JSON. The built-in Runtime example is always labeled
 synthetic. A user-supplied capture is labeled as a replay; the UI does not claim
 that it was collected from validated hardware.
+
+The receiver deployment can be read directly:
+
+```bash
+set -a && . deploy/argus-observability/.env && set +a
+contour runtime --clickhouse
+```
+
+The ClickHouse reader selects a bounded newest window, restores chronological
+order, and transports each `Body` unchanged into the Argus adapter. It defaults
+to `http://127.0.0.1:8123`, database `otel`, and 10,000 records. Override the
+endpoint with `CLICKHOUSE_URL` or the window with `--limit`.
