@@ -108,3 +108,52 @@ export interface RuntimeCapture {
   observations: RuntimeObservation[];
   diagnostics: RuntimeDiagnostic[];
 }
+
+export type RuntimeNodeKind =
+  | "host"
+  | "container"
+  | "process_execution"
+  | "file"
+  | "tcp_connection"
+  | "tcp_endpoint"
+  | "network_interface";
+
+export type RuntimeEdgeKind =
+  | "contains"
+  | "parent_of"
+  | "member_of"
+  | "opened"
+  | "owns_connection"
+  | "source_endpoint"
+  | "destination_endpoint"
+  | "uses_interface";
+
+export interface RuntimeGraphNode {
+  id: string;
+  kind: RuntimeNodeKind;
+  label: string;
+  lifecycle: "active" | "terminated" | "observed";
+  firstSeenAt: string;
+  lastSeenAt: string;
+  facts: Record<string, string | number | boolean>;
+  evidence: string[];
+}
+
+export interface RuntimeGraphEdge {
+  id: string;
+  kind: RuntimeEdgeKind;
+  source: string;
+  target: string;
+  basis: RuntimeEvidenceBasis;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  evidence: string[];
+}
+
+export interface RuntimeGraph {
+  captureId: string;
+  hostId: string;
+  nodes: RuntimeGraphNode[];
+  edges: RuntimeGraphEdge[];
+  diagnostics: RuntimeDiagnostic[];
+}

@@ -48,3 +48,15 @@ The adapter does not claim that JSONL is Argus's production transport framing.
 The caller, rather than an input field, assigns the `synthetic` trust label. A
 real capture must verify framing, activity-detail nesting, and product/schema
 versions before hardware compatibility is claimed.
+
+## Temporal graph
+
+`src/runtime/graph.ts` reduces normalized observations into deterministic host,
+container, process-execution, file, TCP-connection, endpoint, and interface
+nodes. Direct source relationships remain `observed`; correlations such as
+parent-process resolution are marked `inferred`.
+
+Process execution identity includes the boot identity, PID, creation time, and
+self-exec identifier. When creation time is absent and no active execution can
+be correlated, the reducer emits an ambiguous identity and diagnostic instead
+of merging observations by PID.
