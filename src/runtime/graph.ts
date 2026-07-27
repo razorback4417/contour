@@ -240,18 +240,54 @@ function addConnection(
   upsertEdge(edges, "destination_endpoint", connectionNodeId, destinationId, "observed", observation);
 
   if (connection.interfaceName) {
-    const interfaceId = stableId("runtime-interface", `${capture.host.id}\0${connection.interfaceName}`);
+    const networkInterface = capture.host.networkInterfaces?.find((item) =>
+      item.name === connection.interfaceName);
+    const interfaceId = addInterface(
+      capture,
+      connection.interfaceName,
+      connection.interfaceMac ?? networkInterface?.mac,
+      networkInterface?.addresses ?? [],
+      observation,
+      nodes,
+    );
+    upsertEdge(edges, "uses_interface", connectionNodeId, interfaceId, "observed", observation);
+  } else {
+    const networkInterface = capture.host.networkInterfaces?.find((item) =>
+      item.addresses.some((address) =>
+        canonicalIp(address) === canonicalIp(connection.source.address)));
+    if (networkInterface) {
+      const interfaceId = addInterface(
+        capture,
+        networkInterface.name,
+        networkInterface.mac,
+        networkInterface.addresses,
+        observation,
+        nodes,
+      );
+      upsertEdge(edges, "uses_interface", connectionNodeId, interfaceId, "inferred", observation);
+    }
+  }
+}
+
+function addInterface(
+  capture: RuntimeCapture,
+  name: string,
+  mac: string | undefined,
+  addresses: string[],
+  observation: RuntimeObservation,
+  nodes: Map<string, RuntimeGraphNode>,
+): string {
+    const interfaceId = stableId("runtime-interface", `${capture.host.id}\0${name}`);
     upsertNode(nodes, {
       id: interfaceId,
       kind: "network_interface",
-      label: connection.interfaceName,
+      label: name,
       lifecycle: "observed",
       observedAt: observation.observedAt,
       observationId: observation.id,
-      facts: compactFacts({ name: connection.interfaceName, mac: connection.interfaceMac }),
+      facts: compactFacts({ name, mac, addresses: addresses.join(", ") || undefined }),
     });
-    upsertEdge(edges, "uses_interface", connectionNodeId, interfaceId, "observed", observation);
-  }
+    return interfaceId;
 }
 
 function addEndpoint(
@@ -356,6 +392,10 @@ function processIndexKey(process: RuntimeProcess): string {
 
 function endpointKey(endpoint: RuntimeTcpConnection["source"]): string {
   return `${endpoint.address}\0${endpoint.port}`;
+}
+
+function canonicalIp(value: string): string {
+  return value.toLowerCase().replace(/^::ffff:/, "").split("/")[0];
 }
 
 function shortContainerId(value: string): string {

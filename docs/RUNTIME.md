@@ -63,6 +63,24 @@ self-exec identifier. When creation time is absent and no active execution can
 be correlated, the reducer emits an ambiguous identity and diagnostic instead
 of merging observations by PID.
 
+## Network topology boundary
+
+Argus is sufficient for an evidence-backed **communication topology**, not a
+physical fabric map. Contour can show:
+
+- which process owned a TCP connection;
+- the observed local and peer IP/port tuple and TCP state;
+- the workload interface named by the connection event; and
+- an inferred interface attachment when the local socket address matches the
+  workload interface inventory carried in the Argus message header.
+
+The inferred attachment is explicitly labeled as inferred. Argus alone does not
+prove switch ports, intermediate hops, VLAN membership, routing intent, DNS or
+Kubernetes service identity, or the physical cable path. Those require separate
+evidence adapters such as LLDP/NVUE, Kubernetes EndpointSlices, DNS, or an
+inventory source. They can enrich the same graph without changing ownership of
+Argus normalization.
+
 ## Replay
 
 ```bash
@@ -84,5 +102,5 @@ contour runtime --clickhouse
 
 The ClickHouse reader selects a bounded newest window, restores chronological
 order, and transports each `Body` unchanged into the Argus adapter. It defaults
-to `http://127.0.0.1:8123`, database `otel`, and 10,000 records. Override the
+to `http://127.0.0.1:8123`, database `otel`, and 500 records. Override the
 endpoint with `CLICKHOUSE_URL` or the window with `--limit`.

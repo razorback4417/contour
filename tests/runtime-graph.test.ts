@@ -68,6 +68,42 @@ describe("runtime graph reducer", () => {
     expect(graph.nodes.some((node) => node.id.startsWith("runtime-process-ambiguous:"))).toBe(true);
     expect(graph.diagnostics.map((item) => item.code)).toContain("runtime.ambiguous_process_identity");
   });
+
+  it("correlates a local socket address to the workload interface inventory", () => {
+    const capture = normalizeArgusJsonLines(JSON.stringify({
+      message_id: "interface-correlation",
+      occurred_message_time_iso_8601_ns: "2026-07-27T18:00:00Z",
+      workload_information: {
+        unique_identifier: "host",
+        workload_networking_interfaces: [{
+          workload_network_interface_name: "eth0",
+          workload_network_interface_ipv4_address: "192.0.2.10/24",
+        }],
+      },
+      activity_data: {
+        name: "tcp_network_connection_status",
+        process_details: {
+          process_id: 42,
+          process_name: "client",
+          process_creation_time_iso_8601_ns: "2026-07-27T17:59:59Z",
+        },
+        network_connection_details: {
+          local_address: "::ffff:192.0.2.10",
+          local_port: 46000,
+          peer_address: "198.51.100.20",
+          peer_port: 443,
+        },
+      },
+    }), { synthetic: true });
+    const graph = buildRuntimeGraph(capture);
+    const interfaceNode = graph.nodes.find((node) => node.kind === "network_interface");
+    const connection = graph.nodes.find((node) => node.kind === "tcp_connection");
+    const edge = graph.edges.find((candidate) =>
+      candidate.kind === "uses_interface" && candidate.target === interfaceNode?.id);
+
+    expect(interfaceNode).toMatchObject({ label: "eth0", facts: { addresses: "192.0.2.10/24" } });
+    expect(edge).toMatchObject({ source: connection?.id, basis: "inferred" });
+  });
 });
 
 function processObservation(id: string, observedAt: string, createdAt: string | undefined): RuntimeObservation {

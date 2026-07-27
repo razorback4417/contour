@@ -89,6 +89,13 @@ export interface RuntimeHost {
   hostname?: string;
   bootId?: string;
   osVersion?: string;
+  networkInterfaces?: RuntimeNetworkInterface[];
+}
+
+export interface RuntimeNetworkInterface {
+  name: string;
+  mac?: string;
+  addresses: string[];
 }
 
 export interface RuntimeDiagnostic {

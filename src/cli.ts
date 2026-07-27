@@ -78,7 +78,7 @@ async function runtimeCommand(args: string[]): Promise<void> {
   const clickhouse = args.includes("--clickhouse");
   const input = positional(args)[0];
   if ((!clickhouse && !input) || (clickhouse && input)) {
-    throw new CliError("Usage: contour runtime <argus.jsonl> | contour runtime --clickhouse [--limit 10000]", 2);
+    throw new CliError("Usage: contour runtime <argus.jsonl> | contour runtime --clickhouse [--limit 500]", 2);
   }
   const database = process.env.CLICKHOUSE_DATABASE ?? "otel";
   const source = clickhouse ? `clickhouse:${database}.otel_logs` : input;
@@ -87,7 +87,7 @@ async function runtimeCommand(args: string[]): Promise<void> {
     database,
     username: process.env.CLICKHOUSE_USERNAME,
     password: process.env.CLICKHOUSE_PASSWORD,
-    limit: integerOption(args, "--limit", 10_000),
+    limit: integerOption(args, "--limit", 500),
   }) : await readFile(input, "utf8");
   const capture = normalizeArgusJsonLines(records, {
     synthetic: false,

@@ -25,6 +25,7 @@ const activityKinds: Record<string, RuntimeObservationKind> = {
   "file descriptor file content change": "file_changed",
   "network connection created": "tcp_connection_created",
   "tcp network connection state change": "tcp_connection_state_changed",
+  "tcp network connection status": "tcp_connection_state_changed",
   "network connection terminated": "tcp_connection_closed",
 };
 
@@ -54,16 +55,18 @@ export function normalizeArgusJsonLines(
     }
 
     const workload = object(record.workload_information);
+    const networkInterfaces = normalizeNetworkInterfaces(workload);
     host ??= {
       id: string(workload, "unique_identifier") ?? `argus-host:${stableId("unknown", options.source ?? "capture")}`,
       hostname: string(workload, "hostname"),
       bootId: string(workload, "boot_uuid"),
       osVersion: string(workload, "os_version"),
+      networkInterfaces: networkInterfaces.length > 0 ? networkInterfaces : undefined,
     };
 
     const activity = object(record.activity_data);
     const activityName = string(activity, "name");
-    const kind = activityName ? activityKinds[activityName.toLowerCase()] : undefined;
+    const kind = activityName ? activityKinds[canonicalActivityName(activityName)] : undefined;
     const messageId = string(record, "message_id");
     if (!activityName || !kind) {
       diagnostics.push(diagnostic(
@@ -80,6 +83,15 @@ export function normalizeArgusJsonLines(
       diagnostics.push(diagnostic(
         "argus.missing_timestamp",
         `Argus activity ${activityName} has no observation timestamp.`,
+        rawRecord,
+        messageId,
+      ));
+      return;
+    }
+    if (observedAt.startsWith("1970-01-01")) {
+      diagnostics.push(diagnostic(
+        "argus.invalid_timestamp",
+        `Argus activity ${activityName} uses the Unix epoch sentinel instead of an observation time.`,
         rawRecord,
         messageId,
       ));
@@ -136,7 +148,7 @@ function activityDetails(activity: Record<string, unknown>): Record<string, unkn
   const namedDetails = Object.entries(activity)
     .filter(([key, value]) => key !== "name" && key.endsWith("_details") && isRecord(value))
     .map(([, value]) => value as Record<string, unknown>);
-  return namedDetails[0] ?? activity;
+  return namedDetails.length > 0 ? Object.assign({}, ...namedDetails) : activity;
 }
 
 function normalizeProcess(details: Record<string, unknown>): RuntimeProcess | undefined {
@@ -175,10 +187,10 @@ function normalizeFileDescriptor(details: Record<string, unknown>): RuntimeFileD
 }
 
 function normalizeConnection(details: Record<string, unknown>): RuntimeTcpConnection | undefined {
-  const sourceAddress = findString(details, "source_ip_address");
-  const destinationAddress = findString(details, "destination_ip_address");
-  const sourcePort = findNumber(details, "source_port");
-  const destinationPort = findNumber(details, "destination_port");
+  const sourceAddress = findString(details, "source_ip_address") ?? findString(details, "local_address");
+  const destinationAddress = findString(details, "destination_ip_address") ?? findString(details, "peer_address");
+  const sourcePort = findNumber(details, "source_port") ?? findNumber(details, "local_port");
+  const destinationPort = findNumber(details, "destination_port") ?? findNumber(details, "peer_port");
   if (!sourceAddress || !destinationAddress || sourcePort === undefined || destinationPort === undefined) return undefined;
   return {
     descriptorId: optionalString(findStringOrNumber(details, "file_descriptor_id")),
@@ -192,6 +204,48 @@ function normalizeConnection(details: Record<string, unknown>): RuntimeTcpConnec
     firstObservedAt: findString(details, "tcp_connection_creation_time_iso_8601_ns"),
     closedAt: findString(details, "tcp_connection_termination_time_iso_8601_ns"),
   };
+}
+
+function normalizeNetworkInterfaces(
+  workload: Record<string, unknown>,
+): NonNullable<RuntimeCapture["host"]["networkInterfaces"]> {
+  const value = workload.workload_networking_interfaces;
+  const candidates = Array.isArray(value)
+    ? value
+    : isRecord(value)
+      ? Object.values(value)
+      : [];
+  return candidates
+    .filter(isRecord)
+    .map((entry) => {
+      const name = findString(entry, "workload_network_interface_name")
+        ?? findString(entry, "network_interface_name");
+      if (!name) return undefined;
+      return {
+        name,
+        mac: findString(entry, "workload_network_interface_mac_address")
+          ?? findString(entry, "network_interface_mac_address"),
+        addresses: [
+          ...stringValues(entry.workload_network_interface_ipv4_address
+            ?? entry.network_interface_ipv4_address),
+          ...stringValues(entry.workload_network_interface_ipv6_address
+            ?? entry.network_interface_ipv6_address),
+        ].sort(),
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== undefined)
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function canonicalActivityName(value: string): string {
+  return value.toLowerCase().replace(/[_\s]+/g, " ").trim();
+}
+
+function stringValues(value: unknown): string[] {
+  if (typeof value === "string") return value ? [value] : [];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.length > 0)
+    : [];
 }
 
 function diagnostic(
@@ -214,7 +268,11 @@ function findString(record: Record<string, unknown>, field: string): string | un
 }
 
 function findNumber(record: Record<string, unknown>, field: string): number | undefined {
-  return find(record, field, (value): value is number => typeof value === "number" && Number.isFinite(value));
+  const value = find(record, field, (item): item is string | number =>
+    typeof item === "string" || (typeof item === "number" && Number.isFinite(item)));
+  if (value === undefined || (typeof value === "string" && value.trim() === "")) return undefined;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : undefined;
 }
 
 function findStringOrNumber(record: Record<string, unknown>, field: string): string | number | undefined {
