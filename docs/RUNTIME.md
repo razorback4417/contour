@@ -36,3 +36,15 @@ The first Argus adapter and its fixtures remain synthetic until compared with
 an authorized hardware capture. Hardware validation may change the adapter,
 but it must not require changing the runtime contract or physical topology
 schema.
+
+## Argus adapter status
+
+`src/runtime/argus.ts` accepts one JSON object per line and maps the documented
+process, container, file-descriptor, and TCP attribute names. It preserves
+unknown fields only inside the raw record and emits diagnostics for malformed
+or unsupported activities.
+
+The adapter does not claim that JSONL is Argus's production transport framing.
+The caller, rather than an input field, assigns the `synthetic` trust label. A
+real capture must verify framing, activity-detail nesting, and product/schema
+versions before hardware compatibility is claimed.
