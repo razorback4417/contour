@@ -14,6 +14,7 @@ import { layoutTopology } from "./layout/hierarchy";
 import { renderTopologySvg } from "./render/svg";
 import { stableStringify } from "./model/stable";
 import type { TopologySnapshot } from "./model/types";
+import { normalizeArgusJsonLines } from "./runtime/argus";
 import { resolveInvocation } from "./cli/invocation";
 import { formatDoctorReport, inspectEnvironment } from "./cli/doctor";
 import { detectSshSession, formatServerReady, formatSnapshotSummary, sshTarget } from "./cli/presentation";
@@ -27,6 +28,7 @@ async function main(): Promise<void> {
       case "collect": await collectCommand(args); break;
       case "serve": await serveCommand(args); break;
       case "explore": await exploreCommand(args); break;
+      case "runtime": await runtimeCommand(args); break;
       case "normalize": await transformCommand("normalize", args); break;
       case "svg": await transformCommand("svg", args); break;
       case "doctor": await doctorCommand(args); break;
@@ -71,6 +73,19 @@ async function exploreCommand(args: string[]): Promise<void> {
   await serveSnapshot(snapshot, parseServeOptions(args));
 }
 
+async function runtimeCommand(args: string[]): Promise<void> {
+  const input = positional(args)[0];
+  if (!input) throw new CliError("Usage: contour runtime <argus.jsonl> [--port 4177] [--host 127.0.0.1] [--no-open]", 2);
+  const capture = normalizeArgusJsonLines(await readFile(input, "utf8"), {
+    synthetic: false,
+    source: input,
+  });
+  if (capture.observations.length === 0) {
+    throw new CliError(`No supported Argus observations found in ${input}.`, 1);
+  }
+  await servePayload(`${stableStringify(capture)}\n`, parseServeOptions(args));
+}
+
 async function doctorCommand(args: string[]): Promise<void> {
   rejectUnknown(args, new Set(), false);
   const report = await inspectEnvironment(staticRoot());
@@ -95,14 +110,17 @@ async function loadInput(input: string): Promise<TopologySnapshot> {
 }
 
 async function serveSnapshot(snapshot: TopologySnapshot, options: ServeOptions): Promise<void> {
+  await servePayload(`${stableStringify(snapshot)}\n`, options);
+}
+
+async function servePayload(payloadJson: string, options: ServeOptions): Promise<void> {
   const root = staticRoot();
   try { await readFile(resolve(root, "index.html")); }
   catch { throw new CliError("Contour UI assets are missing. Run npm run build before serve or explore.", 1); }
-  const snapshotJson = `${stableStringify(snapshot)}\n`;
   const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
-      if (url.pathname === "/api/snapshot") return send(response, 200, "application/json; charset=utf-8", snapshotJson);
+      if (url.pathname === "/api/snapshot") return send(response, 200, "application/json; charset=utf-8", payloadJson);
       const relative = url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname.slice(1));
       const file = resolve(root, relative);
       if (file !== root && !file.startsWith(`${root}${sep}`)) return send(response, 403, "text/plain; charset=utf-8", "Forbidden\n");
@@ -193,6 +211,7 @@ function printHelp(): void {
 Usage:
   contour                    Explore this machine
   contour <snapshot>         Explore canonical JSON or lstopo XML offline
+  contour runtime <capture>  Replay Argus JSONL as software topology
   contour doctor             Check prerequisites and supported modes
 
 Options:
@@ -208,6 +227,7 @@ function printAdvancedHelp(): void {
 
   contour collect [-o snapshot.json]       Collect canonical JSON without the UI
   contour serve <snapshot> [options]        Explicit offline server form
+  contour runtime <argus.jsonl> [options]    Normalize and replay Argus activities
   contour normalize <topology.xml>          Canonical JSON on stdout
   contour svg <topology.xml>                Deterministic SVG on stdout
 

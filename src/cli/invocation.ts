@@ -1,6 +1,6 @@
 export interface CliInvocation { command: string; args: string[]; }
 
-const explicitCommands = new Set(["collect", "serve", "explore", "normalize", "svg", "doctor", "help", "advanced", "version"]);
+const explicitCommands = new Set(["collect", "serve", "explore", "runtime", "normalize", "svg", "doctor", "help", "advanced", "version"]);
 
 export function resolveInvocation(argv: string[]): CliInvocation {
   const first = argv[0];

@@ -60,3 +60,15 @@ Process execution identity includes the boot identity, PID, creation time, and
 self-exec identifier. When creation time is absent and no active execution can
 be correlated, the reducer emits an ambiguous identity and diagnostic instead
 of merging observations by PID.
+
+## Replay
+
+```bash
+npm run build
+node dist-cli/cli.js runtime fixtures/argus/process-network-sequence.jsonl --no-open
+```
+
+The browser can also open `.jsonl` Argus records or canonical
+`contour.runtime/v1` JSON. The built-in Runtime example is always labeled
+synthetic. A user-supplied capture is labeled as a replay; the UI does not claim
+that it was collected from validated hardware.

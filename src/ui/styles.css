@@ -209,7 +209,46 @@ aside section { margin-bottom: 22px; }
 .question-card > b { justify-self: end; color: #aeb6bc; font-size: 10px; font-weight: 500; }
 .evidence-line { margin: 17px 3px 0; color: #586169; font: 8px ui-monospace, monospace; letter-spacing: .04em; }
 
+.runtime-workspace { width: min(1380px, calc(100% - 96px)); margin: 0 auto; padding: 62px 0 48px; }
+.runtime-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 30px; }
+.runtime-heading h1 { margin: 5px 0 7px; color: #eef1f3; font-size: 25px; font-weight: 550; }
+.runtime-heading p { margin: 0; color: #717c84; font: 9px ui-monospace, monospace; }
+.runtime-heading > span { border: 1px solid #3c454c; color: #8d989f; padding: 6px 8px; font: 8px ui-monospace, monospace; letter-spacing: .08em; }
+.runtime-heading > span.synthetic { border-color: #765f37; color: #c5a25e; }
+.runtime-summary { display: grid; grid-template-columns: repeat(5, 1fr); margin-bottom: 34px; border-top: 1px solid #2a3035; border-bottom: 1px solid #2a3035; }
+.runtime-summary > div { padding: 15px 14px; border-right: 1px solid #252b30; }
+.runtime-summary > div:last-child { border-right: 0; }
+.runtime-summary strong, .runtime-summary span { display: block; }
+.runtime-summary strong { color: #e5e9eb; font: 17px ui-monospace, monospace; }
+.runtime-summary span { margin-top: 5px; color: #68737b; font: 8px ui-monospace, monospace; text-transform: uppercase; }
+.runtime-columns { display: grid; grid-template-columns: minmax(260px, .9fr) minmax(300px, 1.15fr) minmax(280px, 1fr); gap: 24px; align-items: start; }
+.runtime-card-list { display: grid; gap: 8px; }
+.runtime-node { border: 1px solid #2a3136; border-left: 3px solid #597b82; background: #111518; padding: 11px 12px; }
+.runtime-node.terminated { border-left-color: #726b5b; }
+.runtime-node-heading { display: flex; justify-content: space-between; gap: 12px; color: #637078; font: 7px ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
+.runtime-node-heading i { color: #7d898f; font-style: normal; }
+.runtime-node.terminated .runtime-node-heading i { color: #b09a67; }
+.runtime-node h2 { margin: 7px 0 4px; color: #dfe4e7; font: 12px ui-monospace, monospace; }
+.runtime-node > code { display: block; overflow: hidden; color: #707b83; font: 8px ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.runtime-node ul { display: grid; gap: 4px; margin: 10px 0 8px; border-top: 1px solid #252b30; padding: 8px 0 0; list-style: none; }
+.runtime-node li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px; color: #667179; font: 7px ui-monospace, monospace; }
+.runtime-node li b { overflow: hidden; color: #9da7ae; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.runtime-node li i { color: #7ba0a6; font-style: normal; }
+.runtime-node li i:not(:first-child) { text-transform: uppercase; }
+.runtime-node > small { color: #525c63; font: 7px ui-monospace, monospace; }
+.runtime-timeline { margin: 0; border-top: 1px solid #293036; padding: 0; list-style: none; }
+.runtime-timeline li { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 3px 9px; border-bottom: 1px solid #252b30; padding: 10px 2px; }
+.runtime-timeline time { grid-row: 1 / span 3; color: #59656d; font: 7px/1.5 ui-monospace, monospace; }
+.runtime-timeline b { color: #bac2c7; font: 8px ui-monospace, monospace; font-weight: 500; }
+.runtime-timeline span { color: #88939a; font: 8px ui-monospace, monospace; }
+.runtime-timeline small { overflow: hidden; color: #545f67; font: 7px ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.runtime-empty { margin: 0; border: 1px solid #293036; color: #657079; padding: 14px; font: 9px/1.5 ui-monospace, monospace; }
+.runtime-evidence { margin-top: 28px; border-top: 1px solid #292f34; color: #59636b; padding-top: 14px; font: 8px ui-monospace, monospace; }
+
 @media (max-width: 1180px) {
   .inspect-mode { grid-template-columns: 200px minmax(480px, 1fr) 270px; }
   .question-card { grid-template-columns: minmax(0, 1fr) 120px 54px; }
+  .runtime-workspace { width: calc(100% - 48px); }
+  .runtime-columns { grid-template-columns: 1fr 1fr; }
+  .runtime-columns > section:last-child { grid-column: 1 / -1; }
 }

@@ -2,6 +2,11 @@
 
 Contour is a deterministic Linux system-topology explorer. It collects CPU, NUMA, PCIe, GPU, NIC, RDMA, and storage relationships, then opens a local browser UI for inspection, evidence-backed path dossiers, prioritized findings, provenance, and SVG/JSON export.
 
+Contour also has an experimental runtime track for replaying NVIDIA DOCA Argus
+activity as a separate, temporal software topology. It reconstructs
+process-execution, container, file, TCP endpoint, connection, and interface
+relationships without mixing them into the physical hardware schema.
+
 ![Contour I/O topology showing a selected NIC, its PCIe path, related RDMA device and interface, provenance, and verification command](.github/assets/contour-overview.png)
 
 *A sanitized accelerator fixture with one PCIe branch open. Contour reveals the relevant graph progressively, then connects a selected device to exact evidence and verification commands.*
@@ -81,6 +86,7 @@ For later source updates, rerun the same `rsync` command and `npm install` on Li
 contour                    # inspect this Linux machine
 contour topology.json      # open a saved Contour snapshot
 contour topology.xml       # open a saved lstopo XML capture
+contour runtime argus.jsonl # replay an Argus activity capture
 contour doctor             # check prerequisites
 contour --help             # show normal usage
 contour advanced           # show scripting commands
@@ -102,6 +108,13 @@ contour topology.xml
 - Choose endpoint A and endpoint B to highlight their known containment path.
 - Inspect the path dossier for hop-by-hop identity, explicit NUMA evidence, scoped findings, uncertainty, and verification commands.
 - Export the canonical snapshot or current deterministic SVG from the browser.
+
+The **Runtime** view starts with a clearly labeled synthetic Argus fixture.
+Open an Argus JSONL file or run `contour runtime <argus.jsonl>` to replay a
+capture. Runtime relationships retain their evidence basis, and ambiguous
+process identities become diagnostics rather than guessed PID correlations.
+See [`docs/RUNTIME.md`](docs/RUNTIME.md) for the experimental contract and
+current adapter boundary.
 
 Edges represent observed or derived topology facts. When sources provide it, the inspector shows PCIe negotiated/capable width and speed, Ethernet link/FEC state, RDMA counters, driver health, and optional NVIDIA evidence. Counters and topology do not by themselves prove congestion; unknown information remains distinct from absent information.
 

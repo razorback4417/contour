@@ -83,6 +83,29 @@ describe("progressive topology interaction", () => {
     container.remove();
   });
 
+  it("replays the synthetic runtime fixture without physical topology controls", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("Not found", { status: 404, headers: { "content-type": "text/plain" } })));
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => root.render(createElement(App)));
+
+    const runtimeButton = [...container.querySelectorAll<HTMLButtonElement>(".primary-nav button")]
+      .find((button) => button.textContent === "Runtime")!;
+    act(() => runtimeButton.click());
+
+    expect(container.querySelector(".runtime-workspace")).not.toBeNull();
+    expect(container.querySelector(".runtime-heading")?.textContent).toContain("SYNTHETIC FIXTURE");
+    expect(container.querySelector(".runtime-summary")?.textContent).toContain("process executions");
+    expect(container.querySelector(".runtime-columns")?.textContent).toContain("python3");
+    expect(container.querySelector(".runtime-timeline")?.textContent).toContain("tcp connection created");
+    expect(container.querySelector(".controls")).toBeNull();
+    expect(container.querySelector(".details")).toBeNull();
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
   it("does not expose a temporary fixture while the server snapshot is loading", async () => {
     let resolveFetch!: (response: Response) => void;
     vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => { resolveFetch = resolve; })));
