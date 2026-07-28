@@ -22,6 +22,7 @@ export interface RuntimeSource {
   messageId?: string;
   activityName: string;
   synthetic: boolean;
+  receivedAt?: string;
   rawRecord?: string;
 }
 
@@ -77,6 +78,7 @@ export interface RuntimeObservation {
   id: string;
   kind: RuntimeObservationKind;
   observedAt: string;
+  observedAtSource?: "argus" | "transport_received";
   basis: RuntimeEvidenceBasis;
   process?: RuntimeProcess;
   container?: RuntimeContainer;

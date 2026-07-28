@@ -8,9 +8,14 @@ export interface ClickHouseArgusOptions {
 }
 
 export interface ClickHouseArgusBatch {
-  records: string;
+  records: ClickHouseArgusRecord[];
   earlierCursor?: string;
   hasEarlier: boolean;
+}
+
+export interface ClickHouseArgusRecord {
+  body: string;
+  receivedAt: string;
 }
 
 export interface ClickHouseArgusPosition {
@@ -24,7 +29,8 @@ export async function readArgusJsonLinesFromClickHouse(
   options: ClickHouseArgusOptions,
   request: typeof fetch = fetch,
 ): Promise<string> {
-  return (await readArgusBatchFromClickHouse(options, undefined, request)).records;
+  return (await readArgusBatchFromClickHouse(options, undefined, request))
+    .records.map((record) => record.body).join("\n");
 }
 
 export async function readArgusBatchFromClickHouse(
@@ -46,11 +52,12 @@ export async function readArgusBatchFromClickHouse(
   }
   if (before) endpoint.searchParams.set("param_before", before);
   const query = [
-    "SELECT CursorTimestamp, Body",
+    "SELECT CursorTimestamp, ReceivedAt, Body",
     "FROM (",
     "  SELECT",
     "    Timestamp,",
     "    toString(Timestamp) AS CursorTimestamp,",
+    "    formatDateTime(Timestamp, '%Y-%m-%dT%H:%i:%s.%fZ', 'UTC') AS ReceivedAt,",
     "    Body",
     `  FROM ${database}.otel_logs`,
     ...(boundary ? [
@@ -98,21 +105,26 @@ export async function readArgusBatchFromClickHouse(
     }
     if (!isRecord(row)
       || typeof row.Body !== "string"
-      || typeof row.CursorTimestamp !== "string") {
+      || typeof row.CursorTimestamp !== "string"
+      || typeof row.ReceivedAt !== "string") {
       throw new ClickHouseReadError(
-        `ClickHouse row ${index + 1} has no string Body or timestamp cursor.`,
+        `ClickHouse row ${index + 1} has no string Body, receipt time, or timestamp cursor.`,
       );
     }
     return {
       body: row.Body,
       timestamp: row.CursorTimestamp,
+      receivedAt: row.ReceivedAt,
     };
   });
   const hasEarlier = rows.length > limit;
   const visibleRows = hasEarlier ? rows.slice(rows.length - limit) : rows;
   const oldest = visibleRows[0];
   return {
-    records: visibleRows.map((row) => row.body).join("\n"),
+    records: visibleRows.map((row) => ({
+      body: row.body,
+      receivedAt: row.receivedAt,
+    })),
     earlierCursor: oldest ? encodeCursor(oldest.timestamp) : undefined,
     hasEarlier,
   };

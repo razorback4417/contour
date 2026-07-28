@@ -60,4 +60,16 @@ describe("runtime capture contract", () => {
     expect(() => parseRuntimeCaptureJson(JSON.stringify(value)))
       .toThrow("Runtime observation 0 source synthetic flag must be boolean");
   });
+
+  it("preserves explicit transport-time provenance", () => {
+    const value = JSON.parse(capture());
+    value.observations[0].observedAtSource = "transport_received";
+    value.observations[0].source.receivedAt = "2026-07-27T18:00:01.100000000Z";
+
+    const parsed = parseRuntimeCaptureJson(JSON.stringify(value));
+
+    expect(parsed.observations[0].observedAtSource).toBe("transport_received");
+    expect(parsed.observations[0].source.receivedAt)
+      .toBe("2026-07-27T18:00:01.100000000Z");
+  });
 });

@@ -1,4 +1,4 @@
-import { normalizeArgusJsonLines, type ArgusNormalizeOptions } from "./argus";
+import { normalizeArgusRecords, type ArgusNormalizeOptions } from "./argus";
 import {
   readArgusBatchFromClickHouse,
   type ClickHouseArgusBatch,
@@ -26,7 +26,10 @@ export function createClickHouseRuntimeLoader(
   return async (position) => {
     const batch = await readBatch(clickhouse, position);
     return {
-      capture: normalizeArgusJsonLines(batch.records, normalize),
+      capture: normalizeArgusRecords(batch.records.map((record) => ({
+        rawRecord: record.body,
+        receivedAt: record.receivedAt,
+      })), normalize),
       earlierCursor: batch.earlierCursor,
       hasEarlier: batch.hasEarlier,
     };

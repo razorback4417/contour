@@ -127,7 +127,12 @@ export function RuntimeEvidenceLedger({
           <time title={observation.observedAt}>{formatRuntimeClock(observation.observedAt)}</time>
           <span>
             <b>{observation.kind.replaceAll("_", " ")}</b>
-            <small>{observation.basis}</small>
+            <small>
+              {observation.basis}
+              {observation.observedAtSource === "transport_received"
+                ? " · transport receipt time"
+                : ""}
+            </small>
           </span>
           <span>
             <b>{observation.process?.name ?? "no process context"}</b>

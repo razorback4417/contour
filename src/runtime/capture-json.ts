@@ -63,6 +63,13 @@ function validateObservation(value: unknown, index: number): asserts value is Ru
   if (!isRecord(value)) throw new RuntimeCaptureParseError(`${owner} must be an object.`);
   requireString(value, "id", owner);
   requireString(value, "observedAt", owner);
+  if (value.observedAtSource !== undefined
+    && value.observedAtSource !== "argus"
+    && value.observedAtSource !== "transport_received") {
+    throw new RuntimeCaptureParseError(
+      `${owner} has unsupported observedAt source: ${String(value.observedAtSource)}`,
+    );
+  }
   if (!observationKinds.has(value.kind as RuntimeObservationKind)) {
     throw new RuntimeCaptureParseError(`${owner} has unsupported kind: ${String(value.kind)}`);
   }
@@ -74,6 +81,7 @@ function validateObservation(value: unknown, index: number): asserts value is Ru
     requireString(value.source, field, `${owner} source`);
   }
   requireOptionalString(value.source, "rawRecord", `${owner} source`);
+  requireOptionalString(value.source, "receivedAt", `${owner} source`);
   if (typeof value.source.synthetic !== "boolean") {
     throw new RuntimeCaptureParseError(`${owner} source synthetic flag must be boolean.`);
   }

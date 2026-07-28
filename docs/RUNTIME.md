@@ -9,7 +9,8 @@ separate; any future correlation must use explicit host or interface evidence.
 
 - An input adapter owns knowledge of its external wire format and version.
 - The ClickHouse reader owns storage ordering, opaque history cursors, and
-  extraction of raw `Body` strings; it does not interpret Argus fields.
+  transport of raw `Body` strings and storage receipt timestamps; it does not
+  interpret or rewrite Argus fields.
 - The runtime normalizer owns the `contour.runtime/v1` observation contract.
 - The temporal reducer owns entity identity, lifecycle state, and graph edges.
 - The UI consumes normalized captures and never parses Argus fields.
@@ -34,6 +35,11 @@ Every observation declares an evidence basis:
 - `observed`: directly represented by a source record;
 - `inferred`: produced by a named deterministic correlation rule.
 
+Observation time has separate provenance. `argus` means the time came from the
+Argus record. `transport_received` means Argus supplied no usable activity time
+and the live ClickHouse boundary supplied its UTC receipt time. Offline JSONL
+has no transport fallback.
+
 Committed fixtures and the built-in example are synthetic. Imported and live
 captures are labeled at the input boundary. Compatibility is specific to the
 observed product/schema versions and normalization diagnostics; it is not a
@@ -46,6 +52,12 @@ process, container, file-descriptor, and TCP attribute names. Process evidence
 includes the current working directory and PID, mount, and network namespaces
 when supplied. It preserves unknown fields only inside the raw record and emits
 diagnostics for malformed or unsupported activities.
+
+`details_gathering_failed` is retained as an explicit Argus diagnostic rather
+than invented graph activity. When a live record uses Argus's Unix-epoch
+timestamp sentinel, the adapter may retain it with the ClickHouse receipt time,
+an `argus.transport_timestamp_fallback` diagnostic, and explicit
+`transport_received` time provenance.
 
 The adapter does not claim that JSONL is Argus's transport framing. The caller,
 rather than an input field, assigns the `synthetic` trust label. The
@@ -129,9 +141,10 @@ contour runtime --clickhouse
 ```
 
 The ClickHouse reader selects a bounded newest window, restores chronological
-order, and transports each `Body` unchanged into the Argus adapter. Earlier
-pages use a timestamp cursor encoded at the storage boundary, so the UI never
-learns ClickHouse ordering semantics or adds a secondary sort over event bodies.
+order, and transports each `Body` unchanged alongside its UTC storage receipt
+time into the Argus adapter. Earlier pages use a timestamp cursor encoded at
+the storage boundary, so the UI never learns ClickHouse ordering semantics or
+adds a secondary sort over event bodies.
 It defaults to
 `http://127.0.0.1:8123`, database `otel`, and 500 records. Override the endpoint
 with `CLICKHOUSE_URL` or the window with `--limit`. Reads time out after five

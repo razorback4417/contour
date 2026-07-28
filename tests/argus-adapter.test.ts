@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { normalizeArgusJsonLines } from "../src/runtime/argus";
+import {
+  normalizeArgusJsonLines,
+  normalizeArgusRecords,
+} from "../src/runtime/argus";
 
 const fixture = readFileSync(
   new URL("../fixtures/argus/process-network-sequence.jsonl", import.meta.url),
@@ -148,6 +151,62 @@ describe("Argus runtime adapter", () => {
 
     expect(capture.observations).toEqual([]);
     expect(capture.diagnostics[0].code).toBe("argus.invalid_timestamp");
+  });
+
+  it("uses an explicit transport receipt time when Argus supplies the epoch sentinel", () => {
+    const rawRecord = JSON.stringify({
+      message_id: "transport-timed-stop",
+      occurred_message_time_iso_8601_ns: "1970-01-01T00:00:00.000000000+00:00",
+      activity_data: {
+        name: "process_terminated",
+        process_details: {
+          process_id: "1",
+          process_name: "init",
+        },
+      },
+    });
+    const capture = normalizeArgusRecords([{
+      rawRecord,
+      receivedAt: "2026-07-28T22:50:27.549134646Z",
+    }], { synthetic: false });
+
+    expect(capture.observations[0]).toMatchObject({
+      kind: "process_stopped",
+      observedAt: "2026-07-28T22:50:27.549134646Z",
+      observedAtSource: "transport_received",
+      source: {
+        receivedAt: "2026-07-28T22:50:27.549134646Z",
+      },
+    });
+    expect(capture.diagnostics).toEqual([
+      expect.objectContaining({
+        code: "argus.transport_timestamp_fallback",
+        severity: "info",
+        sourceMessageId: "transport-timed-stop",
+      }),
+    ]);
+  });
+
+  it("classifies Argus detail-gathering failures separately from unknown activities", () => {
+    const capture = normalizeArgusJsonLines(JSON.stringify({
+      message_id: "details-failed",
+      occurred_message_time_iso_8601_ns: "2026-07-28T22:50:27Z",
+      activity_data: {
+        name: "details_gathering_failed",
+        process_details: {
+          process_id: "1",
+          process_name: "init",
+        },
+      },
+    }), { synthetic: false });
+
+    expect(capture.observations).toEqual([]);
+    expect(capture.diagnostics).toEqual([
+      expect.objectContaining({
+        code: "argus.details_gathering_failed",
+        sourceMessageId: "details-failed",
+      }),
+    ]);
   });
 
   it("turns malformed and unsupported records into diagnostics", () => {

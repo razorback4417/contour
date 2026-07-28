@@ -15,6 +15,11 @@ export interface ArgusNormalizeOptions {
   source?: string;
 }
 
+export interface ArgusInputRecord {
+  rawRecord: string;
+  receivedAt?: string;
+}
+
 const activityKinds: Record<string, RuntimeObservationKind> = {
   "process created": "process_started",
   "process terminated": "process_stopped",
@@ -33,11 +38,21 @@ export function normalizeArgusJsonLines(
   input: string,
   options: ArgusNormalizeOptions,
 ): RuntimeCapture {
+  return normalizeArgusRecords(
+    input.split(/\r?\n/).map((rawRecord) => ({ rawRecord })),
+    options,
+  );
+}
+
+export function normalizeArgusRecords(
+  input: ArgusInputRecord[],
+  options: ArgusNormalizeOptions,
+): RuntimeCapture {
   const observations: RuntimeObservation[] = [];
   const diagnostics: RuntimeDiagnostic[] = [];
   let host: RuntimeCapture["host"] | undefined;
 
-  input.split(/\r?\n/).forEach((rawRecord, index) => {
+  input.forEach(({ rawRecord, receivedAt }, index) => {
     if (!rawRecord.trim()) return;
     const source = options.source ?? `argus:record:${index + 1}`;
     let record: Record<string, unknown>;
@@ -66,8 +81,18 @@ export function normalizeArgusJsonLines(
 
     const activity = object(record.activity_data);
     const activityName = string(activity, "name");
-    const kind = activityName ? activityKinds[canonicalActivityName(activityName)] : undefined;
     const messageId = string(record, "message_id");
+    const canonicalName = activityName ? canonicalActivityName(activityName) : undefined;
+    if (canonicalName === "details gathering failed") {
+      diagnostics.push(diagnostic(
+        "argus.details_gathering_failed",
+        "Argus reported that activity details could not be gathered.",
+        rawRecord,
+        messageId,
+      ));
+      return;
+    }
+    const kind = canonicalName ? activityKinds[canonicalName] : undefined;
     if (!activityName || !kind) {
       diagnostics.push(diagnostic(
         "argus.unsupported_activity",
@@ -78,24 +103,32 @@ export function normalizeArgusJsonLines(
       return;
     }
 
-    const observedAt = string(record, "occurred_message_time_iso_8601_ns");
-    if (!observedAt) {
-      diagnostics.push(diagnostic(
-        "argus.missing_timestamp",
-        `Argus activity ${activityName} has no observation timestamp.`,
-        rawRecord,
-        messageId,
-      ));
-      return;
-    }
-    if (observedAt.startsWith("1970-01-01")) {
-      diagnostics.push(diagnostic(
-        "argus.invalid_timestamp",
-        `Argus activity ${activityName} uses the Unix epoch sentinel instead of an observation time.`,
-        rawRecord,
-        messageId,
-      ));
-      return;
+    const argusObservedAt = string(record, "occurred_message_time_iso_8601_ns");
+    const invalidArgusTimestamp = !argusObservedAt || argusObservedAt.startsWith("1970-01-01");
+    let observedAt = argusObservedAt;
+    let observedAtSource: RuntimeObservation["observedAtSource"] = "argus";
+    if (invalidArgusTimestamp) {
+      if (isUsableTransportTimestamp(receivedAt)) {
+        observedAt = receivedAt;
+        observedAtSource = "transport_received";
+        diagnostics.push(diagnostic(
+          "argus.transport_timestamp_fallback",
+          `Argus activity ${activityName} used its transport receipt time because its source timestamp was ${argusObservedAt ? "the Unix epoch sentinel" : "missing"}.`,
+          rawRecord,
+          messageId,
+          "info",
+        ));
+      } else {
+        diagnostics.push(diagnostic(
+          argusObservedAt ? "argus.invalid_timestamp" : "argus.missing_timestamp",
+          argusObservedAt
+            ? `Argus activity ${activityName} uses the Unix epoch sentinel instead of an observation time.`
+            : `Argus activity ${activityName} has no observation timestamp.`,
+          rawRecord,
+          messageId,
+        ));
+        return;
+      }
     }
 
     const details = activityDetails(activity);
@@ -111,12 +144,14 @@ export function normalizeArgusJsonLines(
       messageId,
       activityName,
       synthetic: options.synthetic,
+      receivedAt,
       rawRecord,
     };
     observations.push({
       id: messageId || stableId("observation", rawRecord),
       kind,
-      observedAt,
+      observedAt: observedAt!,
+      observedAtSource,
       basis: "observed",
       process,
       container: containerId ? { containerId } : undefined,
@@ -128,10 +163,13 @@ export function normalizeArgusJsonLines(
 
   const times = observations.map((item) => item.observedAt).sort();
   const fallbackTime = "1970-01-01T00:00:00Z";
+  const captureMaterial = input
+    .map(({ rawRecord, receivedAt }) => `${receivedAt ?? ""}\0${rawRecord}`)
+    .join("\n");
   return {
     schemaVersion: RUNTIME_CAPTURE_SCHEMA_VERSION,
-    captureId: stableId("runtime-capture", input),
-    host: host ?? { id: stableId("argus-host", options.source ?? input) },
+    captureId: stableId("runtime-capture", captureMaterial),
+    host: host ?? { id: stableId("argus-host", options.source ?? captureMaterial) },
     startedAt: times[0] ?? fallbackTime,
     endedAt: times.at(-1) ?? fallbackTime,
     observations,
@@ -254,14 +292,23 @@ function diagnostic(
   message: string,
   rawRecord: string,
   sourceMessageId?: string,
+  severity: RuntimeDiagnostic["severity"] = "warning",
 ): RuntimeDiagnostic {
   return {
     id: stableId("runtime-diagnostic", `${code}\0${rawRecord}`),
     code,
-    severity: "warning",
+    severity,
     message,
     sourceMessageId,
   };
+}
+
+function isUsableTransportTimestamp(value: string | undefined): value is string {
+  if (!value || value.startsWith("1970-01-01")) return false;
+  const milliseconds = Date.parse(
+    value.replace(/(\.\d{3})\d+(Z|[+-]\d{2}:\d{2})$/, "$1$2"),
+  );
+  return Number.isFinite(milliseconds);
 }
 
 function findString(record: Record<string, unknown>, field: string): string | undefined {
