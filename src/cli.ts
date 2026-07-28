@@ -15,7 +15,8 @@ import { renderTopologySvg } from "./render/svg";
 import { stableStringify } from "./model/stable";
 import type { TopologySnapshot } from "./model/types";
 import { normalizeArgusJsonLines } from "./runtime/argus";
-import { readArgusJsonLinesFromClickHouse } from "./runtime/clickhouse";
+import { createClickHouseRuntimeLoader } from "./runtime/live";
+import { runtimeBrowserWindow } from "./runtime/transport";
 import { resolveInvocation } from "./cli/invocation";
 import { formatDoctorReport, inspectEnvironment } from "./cli/doctor";
 import { detectSshSession, formatServerReady, formatSnapshotSummary, sshTarget } from "./cli/presentation";
@@ -82,21 +83,52 @@ async function runtimeCommand(args: string[]): Promise<void> {
   }
   const database = process.env.CLICKHOUSE_DATABASE ?? "otel";
   const source = clickhouse ? `clickhouse:${database}.otel_logs` : input;
-  const records = clickhouse ? await readArgusJsonLinesFromClickHouse({
+  const loadClickHouseCapture = clickhouse ? createClickHouseRuntimeLoader({
     endpoint: process.env.CLICKHOUSE_URL ?? "http://127.0.0.1:8123",
     database,
     username: process.env.CLICKHOUSE_USERNAME,
     password: process.env.CLICKHOUSE_PASSWORD,
     limit: integerOption(args, "--limit", 500),
-  }) : await readFile(input, "utf8");
-  const capture = normalizeArgusJsonLines(records, {
+  }, {
     synthetic: false,
     source,
-  });
+  }) : undefined;
+  const loadFileCapture = async () =>
+    normalizeArgusJsonLines(await readFile(input, "utf8"), {
+      synthetic: false,
+      source,
+    });
+  const initialBatch = loadClickHouseCapture ? await loadClickHouseCapture() : undefined;
+  const capture = initialBatch?.capture ?? await loadFileCapture();
   if (capture.observations.length === 0) {
     throw new CliError(`No supported Argus observations found in ${source}.`, 1);
   }
-  await servePayload(`${stableStringify(capture)}\n`, parseServeOptions(args, new Set(["--clickhouse", "--limit"])));
+  const options = parseServeOptions(args, new Set(["--clickhouse", "--limit"]));
+  if (clickhouse) {
+    await servePayloadProvider(
+      async (url) => {
+        const cursor = url.searchParams.get("cursor") ?? undefined;
+        const before = url.searchParams.get("before") ?? undefined;
+        const batch = await loadClickHouseCapture!({ cursor, before });
+        return `${stableStringify(runtimeBrowserWindow(batch.capture, {
+          earlierCursor: batch.earlierCursor,
+          hasEarlier: batch.hasEarlier,
+          live: cursor === undefined && before === undefined,
+        }))}\n`;
+      },
+      `${stableStringify(runtimeBrowserWindow(capture, {
+        earlierCursor: initialBatch?.earlierCursor,
+        hasEarlier: initialBatch?.hasEarlier ?? false,
+        live: true,
+      }))}\n`,
+      options,
+    );
+  } else {
+    await servePayload(`${stableStringify(runtimeBrowserWindow(capture, {
+      hasEarlier: false,
+      live: false,
+    }))}\n`, options);
+  }
 }
 
 async function doctorCommand(args: string[]): Promise<void> {
@@ -127,13 +159,33 @@ async function serveSnapshot(snapshot: TopologySnapshot, options: ServeOptions):
 }
 
 async function servePayload(payloadJson: string, options: ServeOptions): Promise<void> {
+  await servePayloadProvider(async () => payloadJson, payloadJson, options);
+}
+
+async function servePayloadProvider(
+  payload: (url: URL) => Promise<string>,
+  initialPayload: string,
+  options: ServeOptions,
+): Promise<void> {
   const root = staticRoot();
   try { await readFile(resolve(root, "index.html")); }
   catch { throw new CliError("Contour UI assets are missing. Run npm run build before serve or explore.", 1); }
   const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
-      if (url.pathname === "/api/snapshot") return send(response, 200, "application/json; charset=utf-8", payloadJson);
+      if (url.pathname === "/api/snapshot") {
+        try {
+          const payloadJson = initialPayload && url.searchParams.get("initial") === "1"
+            ? initialPayload
+            : await payload(url);
+          return send(response, 200, "application/json; charset=utf-8", payloadJson);
+        } catch (error) {
+          const detail = error instanceof Error
+            ? error.message.replaceAll(/[\r\n]+/g, " ").slice(0, 320)
+            : "Snapshot provider failed.";
+          return send(response, 503, "text/plain; charset=utf-8", `Runtime snapshot unavailable: ${detail}\n`);
+        }
+      }
       const relative = url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname.slice(1));
       const file = resolve(root, relative);
       if (file !== root && !file.startsWith(`${root}${sep}`)) return send(response, 403, "text/plain; charset=utf-8", "Forbidden\n");

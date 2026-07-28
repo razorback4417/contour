@@ -6,6 +6,7 @@ import { normalizeArgusJsonLines } from "../runtime/argus";
 import { parseRuntimeCaptureJson, RuntimeCaptureParseError } from "../runtime/capture-json";
 import { buildRuntimeGraph } from "../runtime/graph";
 import type { RuntimeCapture } from "../runtime/types";
+import type { RuntimeWindow } from "../runtime/transport";
 import { normalizeHwloc } from "../normalize/hwloc";
 import { layoutTopology } from "../layout/hierarchy";
 import { renderTopologySvg } from "../render/svg";
@@ -23,7 +24,11 @@ import argusFixture from "../../fixtures/argus/process-network-sequence.jsonl?ra
 type WorkspaceMode = "overview" | TopologyViewMode | "runtime";
 type LoadedWorkspace =
   | { kind: "topology"; snapshot: TopologySnapshot }
-  | { kind: "runtime"; capture: RuntimeCapture };
+  | { kind: "runtime"; capture: RuntimeCapture; navigation?: RuntimeWindow["navigation"] };
+interface SavedRuntimeWindow {
+  capture: RuntimeCapture;
+  navigation?: RuntimeWindow["navigation"];
+}
 const colors: Partial<Record<NodeKind, string>> = { host: "#9aa5b1", numa_node: "#d7a84b", cpu_package: "#7ea2c9", cpu_core: "#66809b", cache: "#879db2", memory_region: "#b18b55", pci_bridge: "#806fa6", pci_endpoint: "#77808b", gpu: "#68a982", nic: "#53a7ad", rdma_device: "#4f98a5", network_interface: "#5c9298", storage_device: "#b37f67" };
 const nodeColorKey = [
   ["System host", colors.host], ["CPU & cache", colors.cpu_package], ["Memory & NUMA", colors.numa_node],
@@ -43,6 +48,13 @@ function loadWorkspace(content: string, source: string): LoadedWorkspace {
   }
   if (source.toLowerCase().endsWith(".json")) {
     const value: unknown = JSON.parse(content);
+    if (isRuntimeWindow(value)) {
+      return {
+        kind: "runtime",
+        capture: parseRuntimeCaptureJson(JSON.stringify(value.capture)),
+        navigation: value.navigation,
+      };
+    }
     if (isRecord(value) && value.schemaVersion === "contour.runtime/v1") {
       return { kind: "runtime", capture: parseRuntimeCaptureJson(content) };
     }
@@ -54,6 +66,16 @@ export function App() {
   const [snapshot, setSnapshot] = useState(() => load(fixtures.accelerator, "fixture:accelerator-server.xml"));
   const [runtimeCapture, setRuntimeCapture] = useState(() =>
     normalizeArgusJsonLines(argusFixture, { synthetic: true, source: "fixture:argus/process-network-sequence.jsonl" }));
+  const [runtimeLive, setRuntimeLive] = useState(false);
+  const [runtimeFollowing, setRuntimeFollowing] = useState(false);
+  const [runtimeFocusId, setRuntimeFocusId] = useState<string>();
+  const [runtimeRefreshFailed, setRuntimeRefreshFailed] = useState(false);
+  const [runtimeNavigation, setRuntimeNavigation] = useState<RuntimeWindow["navigation"]>();
+  const [runtimeHistoryAction, setRuntimeHistoryAction] = useState<"earlier" | "jump" | "live">();
+  const [runtimeHistoryError, setRuntimeHistoryError] = useState<string>();
+  const [runtimeNewerWindows, setRuntimeNewerWindows] = useState<SavedRuntimeWindow[]>([]);
+  const [importGuideOpen, setImportGuideOpen] = useState(false);
+  const [actionGuideOpen, setActionGuideOpen] = useState(false);
   const [error, setError] = useState<string>();
   const [mode, setMode] = useState<WorkspaceMode>("overview");
   const [focusRootId, setFocusRootId] = useState<string>();
@@ -67,6 +89,7 @@ export function App() {
   const [loadingInitialSnapshot, setLoadingInitialSnapshot] = useState(true);
   const drag = useRef<DragOrigin | undefined>(undefined);
   const explicitSnapshot = useRef(false);
+  const runtimeRefreshAbort = useRef<AbortController | undefined>(undefined);
   const topologySvg = useRef<SVGSVGElement | null>(null);
   const nodeById = useMemo(() => new Map(snapshot.nodes.map((node) => [node.id, node])), [snapshot]);
   const overview = useMemo(() => topologyOverview(snapshot), [snapshot]);
@@ -99,6 +122,18 @@ export function App() {
   const successfulCollectors = snapshot.collectors.filter((collector) => collector.status === "success").length;
 
   useEffect(() => {
+    if (!importGuideOpen && !actionGuideOpen) return;
+    const closeOverlay = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setImportGuideOpen(false);
+        setActionGuideOpen(false);
+      }
+    };
+    document.addEventListener("keydown", closeOverlay);
+    return () => document.removeEventListener("keydown", closeOverlay);
+  }, [actionGuideOpen, importGuideOpen]);
+
+  useEffect(() => {
     const svg = topologySvg.current;
     if (!svg) return;
     const handleWheel = (event: WheelEvent) => {
@@ -111,11 +146,16 @@ export function App() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/snapshot", { headers: { accept: "application/json" } }).then(async (response) => {
+    fetch("/api/snapshot?initial=1", { headers: { accept: "application/json" } }).then(async (response) => {
       if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) return;
       const next = loadWorkspace(await response.text(), "server.json");
       if (!cancelled && !explicitSnapshot.current) {
-        if (next.kind === "runtime") resetRuntimeCapture(next.capture);
+        if (next.kind === "runtime") {
+          // Plain runtime captures are the transport used by Contour servers
+          // before contour.runtime-window/v1. Treat them as live here; current
+          // replay servers explicitly send a live:false window envelope.
+          resetRuntimeCapture(next.capture, next.navigation?.live ?? true, next.navigation);
+        }
         else resetSnapshot(next.snapshot);
       }
     }).catch((reason) => {
@@ -128,21 +168,165 @@ export function App() {
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    if (mode !== "runtime" || !runtimeLive || !runtimeFollowing || explicitSnapshot.current) return;
+    let cancelled = false;
+    let polling = false;
+    const refresh = async () => {
+      if (polling) return;
+      polling = true;
+      const controller = new AbortController();
+      runtimeRefreshAbort.current = controller;
+      try {
+        const response = await fetch("/api/snapshot", {
+          headers: { accept: "application/json" },
+          signal: controller.signal,
+        });
+        if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) {
+          throw new Error(`Live refresh failed (${response.status}).`);
+        }
+        const next = loadWorkspace(await response.text(), "server.json");
+        if (!cancelled && next.kind === "runtime" && next.capture.observations.length > 0) {
+          if (runtimeFocusId) {
+            const nextGraph = buildRuntimeGraph(next.capture);
+            const focusStillVisible = nextGraph.nodes.some((node) =>
+              node.id === runtimeFocusId && node.kind === "process_execution");
+            if (!focusStillVisible) {
+              setRuntimeFollowing(false);
+              return;
+            }
+          }
+          setRuntimeRefreshFailed(false);
+          setRuntimeNavigation(next.navigation);
+          setRuntimeCapture((current) =>
+            current.captureId === next.capture.captureId ? current : next.capture);
+        }
+      } catch (reason) {
+        // Keep the last valid capture visible while a live refresh is unavailable.
+        if (!cancelled && !(reason instanceof DOMException && reason.name === "AbortError")) {
+          setRuntimeRefreshFailed(true);
+        }
+      } finally {
+        if (runtimeRefreshAbort.current === controller) runtimeRefreshAbort.current = undefined;
+        polling = false;
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(refresh, 2_000);
+    return () => {
+      cancelled = true;
+      runtimeRefreshAbort.current?.abort();
+      window.clearInterval(timer);
+    };
+  }, [mode, runtimeFocusId, runtimeFollowing, runtimeLive]);
+
   function resetSnapshot(next: TopologySnapshot) {
-    setSnapshot(next); setMode("overview"); setFocusRootId(undefined); setActiveNodeId(undefined); setTraceEndpoints([]); setQuery(""); setSearchOpen(false); setActiveSuggestion(0); setNuma("all"); setError(undefined); setView({ x: 0, y: 0, scale: 1 });
+    setSnapshot(next); setRuntimeLive(false); setRuntimeFollowing(false); setRuntimeFocusId(undefined); setRuntimeRefreshFailed(false); setMode("overview"); setFocusRootId(undefined); setActiveNodeId(undefined); setTraceEndpoints([]); setQuery(""); setSearchOpen(false); setActiveSuggestion(0); setNuma("all"); setError(undefined); setView({ x: 0, y: 0, scale: 1 });
   }
   function chooseSnapshot(next: TopologySnapshot) {
     explicitSnapshot.current = true;
     setLoadingInitialSnapshot(false);
     resetSnapshot(next);
   }
-  function resetRuntimeCapture(next: RuntimeCapture) {
-    setRuntimeCapture(next); setMode("runtime"); setFocusRootId(undefined); setActiveNodeId(undefined); setTraceEndpoints([]); setQuery(""); setSearchOpen(false); setActiveSuggestion(0); setError(undefined);
+  function resetRuntimeCapture(
+    next: RuntimeCapture,
+    live = false,
+    navigation?: RuntimeWindow["navigation"],
+  ) {
+    setRuntimeCapture(next); setRuntimeLive(live); setRuntimeFollowing(live); setRuntimeNavigation(navigation); setRuntimeNewerWindows([]); setRuntimeFocusId(undefined); setRuntimeRefreshFailed(false); setMode("runtime"); setFocusRootId(undefined); setActiveNodeId(undefined); setTraceEndpoints([]); setQuery(""); setSearchOpen(false); setActiveSuggestion(0); setError(undefined);
   }
   function chooseRuntimeCapture(next: RuntimeCapture) {
     explicitSnapshot.current = true;
     setLoadingInitialSnapshot(false);
-    resetRuntimeCapture(next);
+    resetRuntimeCapture(next, false);
+  }
+  async function loadEarlierRuntimeWindow(): Promise<boolean> {
+    const cursor = runtimeNavigation?.earlierCursor;
+    if (!cursor || runtimeHistoryAction) return false;
+    pauseLiveRefresh();
+    setRuntimeHistoryAction("earlier");
+    setRuntimeHistoryError(undefined);
+    try {
+      const next = await fetchRuntimeWindow(`/api/snapshot?cursor=${encodeURIComponent(cursor)}`);
+      showHistoricalRuntimeWindow(next);
+      return true;
+    } catch (reason) {
+      setRuntimeHistoryError(reason instanceof Error ? reason.message : String(reason));
+      return false;
+    } finally {
+      setRuntimeHistoryAction(undefined);
+    }
+  }
+  async function jumpToRuntimeTime(before: string): Promise<boolean> {
+    if (runtimeHistoryAction) return false;
+    pauseLiveRefresh();
+    setRuntimeHistoryAction("jump");
+    setRuntimeHistoryError(undefined);
+    try {
+      const next = await fetchRuntimeWindow(`/api/snapshot?before=${encodeURIComponent(before)}`);
+      showHistoricalRuntimeWindow(next);
+      return true;
+    } catch (reason) {
+      setRuntimeHistoryError(reason instanceof Error ? reason.message : String(reason));
+      return false;
+    } finally {
+      setRuntimeHistoryAction(undefined);
+    }
+  }
+  async function jumpToLiveRuntime(): Promise<boolean> {
+    if (runtimeHistoryAction) return false;
+    pauseLiveRefresh();
+    setRuntimeHistoryAction("live");
+    setRuntimeHistoryError(undefined);
+    try {
+      const next = await fetchRuntimeWindow("/api/snapshot");
+      setRuntimeCapture(next.capture);
+      setRuntimeNavigation(next.navigation);
+      setRuntimeNewerWindows([]);
+      setRuntimeFocusId(undefined);
+      setRuntimeRefreshFailed(false);
+      setRuntimeFollowing(true);
+      return true;
+    } catch (reason) {
+      setRuntimeHistoryError(reason instanceof Error ? reason.message : String(reason));
+      return false;
+    } finally {
+      setRuntimeHistoryAction(undefined);
+    }
+  }
+  function pauseLiveRefresh() {
+    setRuntimeFollowing(false);
+    runtimeRefreshAbort.current?.abort();
+  }
+  async function fetchRuntimeWindow(url: string): Promise<Extract<LoadedWorkspace, { kind: "runtime" }>> {
+    const response = await fetch(url, { headers: { accept: "application/json" } });
+    if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) {
+      const detail = (await response.text()).trim();
+      throw new Error(detail || `Runtime window request failed (${response.status}).`);
+    }
+    const next = loadWorkspace(await response.text(), "server.json");
+    if (next.kind !== "runtime") throw new Error("Runtime window request returned a topology snapshot.");
+    return next;
+  }
+  function showHistoricalRuntimeWindow(next: Extract<LoadedWorkspace, { kind: "runtime" }>) {
+    setRuntimeNewerWindows((current) => [...current, {
+      capture: runtimeCapture,
+      navigation: runtimeNavigation,
+    }]);
+    setRuntimeCapture(next.capture);
+    setRuntimeNavigation(next.navigation);
+    setRuntimeFollowing(false);
+    setRuntimeFocusId(undefined);
+    setRuntimeRefreshFailed(false);
+  }
+  function loadNewerRuntimeWindow() {
+    const next = runtimeNewerWindows.at(-1);
+    if (!next) return;
+    setRuntimeNewerWindows((current) => current.slice(0, -1));
+    setRuntimeCapture(next.capture);
+    setRuntimeNavigation(next.navigation);
+    setRuntimeFollowing(false);
+    setRuntimeFocusId(undefined);
   }
   async function openFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -194,10 +378,43 @@ export function App() {
       <button type="button" className="brand" aria-label="Return to topology overview" onClick={() => { setMode("overview"); setActiveNodeId(undefined); }}><ContourMark/><span className="host-label">{hostLabel}</span></button>
       <nav className="primary-nav" aria-label="Topology views"><button className={mode === "overview" ? "active" : ""} onClick={() => { setMode("overview"); setActiveNodeId(undefined); }}>Overview</button><button className={mode === "io" ? "active" : ""} onClick={() => openMode("io")}>I/O</button><button className={mode === "compute" ? "active" : ""} onClick={() => openMode("compute")}>CPU &amp; NUMA</button><button className={mode === "runtime" ? "active" : ""} onClick={() => { setMode("runtime"); setActiveNodeId(undefined); }}>Runtime</button></nav>
       <div className="header-actions">
-        <label className="button open-button">Open capture<input type="file" accept=".xml,.json,.jsonl,text/xml,application/json,application/x-ndjson" onChange={openFile}/></label>
-        <details className="utility-menu"><summary aria-label="More actions">Actions</summary><div><span>Examples</span><button onClick={() => chooseSnapshot(load(fixtures.workstation, "fixture:workstation.xml"))}>Workstation</button><button onClick={() => chooseSnapshot(load(fixtures.accelerator, "fixture:accelerator-server.xml"))}>Accelerator server</button><button onClick={() => chooseRuntimeCapture(normalizeArgusJsonLines(argusFixture, { synthetic: true, source: "fixture:argus/process-network-sequence.jsonl" }))}>Synthetic Argus replay</button><hr/><span>Export</span>{mode === "runtime" ? <button onClick={exportRuntimeCapture}>Runtime capture JSON</button> : <><button onClick={exportSnapshot}>Snapshot JSON</button><button onClick={exportSvg}>Diagram SVG</button></>}</div></details>
+        <button
+          type="button"
+          className="button open-button"
+          onClick={() => setImportGuideOpen(true)}
+        >Import</button>
+        <button
+          type="button"
+          className="button action-button"
+          aria-haspopup="dialog"
+          onClick={() => setActionGuideOpen(true)}
+        >Actions <span aria-hidden="true">⌄</span></button>
       </div>
     </header>
+    {importGuideOpen && <ImportGuide
+      kind={mode === "runtime" ? "runtime" : "topology"}
+      onClose={() => setImportGuideOpen(false)}
+      onOpenFile={openFile}
+    />}
+    {actionGuideOpen && <ActionGuide
+      kind={mode === "runtime" ? "runtime" : "topology"}
+      onClose={() => setActionGuideOpen(false)}
+      onExample={(example) => {
+        if (example === "workstation") chooseSnapshot(load(fixtures.workstation, "fixture:workstation.xml"));
+        else if (example === "accelerator") chooseSnapshot(load(fixtures.accelerator, "fixture:accelerator-server.xml"));
+        else chooseRuntimeCapture(normalizeArgusJsonLines(argusFixture, {
+          synthetic: true,
+          source: "fixture:argus/process-network-sequence.jsonl",
+        }));
+        setActionGuideOpen(false);
+      }}
+      onExport={(format) => {
+        if (format === "runtime") exportRuntimeCapture();
+        else if (format === "snapshot") exportSnapshot();
+        else exportSvg();
+        setActionGuideOpen(false);
+      }}
+    />}
     {error && <div className="error">INPUT ERROR · {error}</div>}
     <main className={topologyMode ? "inspect-mode" : "overview-mode"}>
       {topologyMode && <aside className="controls">
@@ -208,7 +425,29 @@ export function App() {
       </aside>}
       <section className={`viewport ${topologyMode ? "" : "overview-workspace"}`}>
         {mode === "overview" ? loadingInitialSnapshot ? <LoadingWorkspace/> : <OverviewWorkspace snapshot={snapshot} overview={overview} onOpen={openMode}/> : mode === "runtime"
-          ? <RuntimeWorkspace capture={runtimeCapture} graph={runtimeGraph}/>
+          ? <RuntimeWorkspace
+            capture={runtimeCapture}
+            graph={runtimeGraph}
+            live={runtimeLive}
+            following={runtimeFollowing}
+            stale={runtimeRefreshFailed}
+            hasEarlier={runtimeNavigation?.hasEarlier ?? false}
+            historyAction={runtimeHistoryAction}
+            historyError={runtimeHistoryError}
+            onLoadEarlier={loadEarlierRuntimeWindow}
+            hasNewer={runtimeNewerWindows.length > 0}
+            onLoadNewer={loadNewerRuntimeWindow}
+            onJumpToTime={jumpToRuntimeTime}
+            onJumpLive={jumpToLiveRuntime}
+            onFollowingChange={(next) => {
+              if (next) {
+                setRuntimeFocusId(undefined);
+                setRuntimeNewerWindows([]);
+              }
+              setRuntimeFollowing(next);
+            }}
+            onFocusChange={setRuntimeFocusId}
+          />
           : <>
           <div className="viewport-meta"><span>{visible.size} / {snapshot.nodes.length} nodes{query && projection ? ` · ${projection.matchingNodeCount} matches` : ""}</span><span>{Math.round(view.scale * 100)}%</span></div>
           {mode === "io" && focusRootId && <button className="back-to-groups" onClick={() => { setFocusRootId(undefined); setActiveNodeId(undefined); setView({ x: 0, y: 0, scale: 1 }); }}>← I/O groups</button>}
@@ -230,6 +469,145 @@ export function App() {
 
 function LoadingWorkspace() {
   return <div className="loading-workspace"><label className="section-label">LOADING SNAPSHOT</label><h1>Inspecting this machine…</h1><p>Waiting for the canonical topology before enabling exploration.</p></div>;
+}
+
+function ImportGuide({
+  kind,
+  onClose,
+  onOpenFile,
+}: {
+  kind: "runtime" | "topology";
+  onClose: () => void;
+  onOpenFile: (event: ChangeEvent<HTMLInputElement>) => void;
+}) {
+  const runtime = kind === "runtime";
+  return <div className="import-overlay" role="presentation" onMouseDown={(event) => {
+    if (event.target === event.currentTarget) onClose();
+  }}>
+    <section className="import-guide" role="dialog" aria-modal="true" aria-labelledby="runtime-import-title">
+      <header>
+        <div>
+          <label className="section-label">{runtime ? "RUNTIME EVIDENCE" : "TOPOLOGY SNAPSHOT"}</label>
+          <h2 id="runtime-import-title">
+            {runtime ? "Open an Argus capture" : "Open a Linux topology"}
+          </h2>
+        </div>
+        <button
+          type="button"
+          aria-label={`Close ${runtime ? "runtime evidence" : "topology snapshot"} guide`}
+          onClick={onClose}
+        >×</button>
+      </header>
+      <p>
+        {runtime
+          ? "Import a bounded capture for offline reconstruction. Contour normalizes the records, rebuilds execution identities, and projects their file and TCP relationships."
+          : "Import a saved machine snapshot for offline exploration. Contour normalizes the hardware evidence and rebuilds its CPU, NUMA, PCIe, accelerator, network, and storage relationships."}
+      </p>
+      <div className="import-formats">
+        <article>
+          <code>{runtime ? ".jsonl" : ".xml"}</code>
+          <b>{runtime ? "Argus activity records" : "lstopo XML"}</b>
+          <span>{runtime
+            ? "One emitted Argus JSON object per line. Supported v0 evidence includes process, container, file-descriptor, and TCP activity."
+            : "Whole-system hwloc output, typically captured with lstopo --whole-system --of xml -."}</span>
+        </article>
+        <article>
+          <code>.json</code>
+          <b>{runtime ? "Contour runtime capture" : "Contour topology snapshot"}</b>
+          <span>A previously exported <code>
+            {runtime ? "contour.runtime/v1" : "contour.topology/v2"}
+          </code> {runtime ? "capture with normalized observations and diagnostics." : "snapshot with canonical facts, relationships, provenance, and diagnostics."}</span>
+        </article>
+      </div>
+      <aside>
+        {runtime ? <>
+          For a live feed, start <code>contour runtime --clickhouse</code>. OTLP request
+          envelopes and arbitrary ClickHouse exports are not file-import formats.
+        </> : <>
+          For live collection, run <code>contour</code> on the Linux host. Screenshots,
+          PDFs, and hand-authored diagrams are not evidence snapshot formats.
+        </>}
+      </aside>
+      <footer>
+        <button type="button" onClick={onClose}>Cancel</button>
+        <label className="button">
+          Choose evidence file
+          <input
+            type="file"
+            accept={runtime
+              ? ".json,.jsonl,application/json,application/x-ndjson"
+              : ".xml,.json,text/xml,application/json"}
+            onChange={(event) => {
+              onOpenFile(event);
+              onClose();
+            }}
+          />
+        </label>
+      </footer>
+    </section>
+  </div>;
+}
+
+function ActionGuide({
+  kind,
+  onClose,
+  onExample,
+  onExport,
+}: {
+  kind: "runtime" | "topology";
+  onClose: () => void;
+  onExample: (example: "workstation" | "accelerator" | "runtime") => void;
+  onExport: (format: "runtime" | "snapshot" | "svg") => void;
+}) {
+  const runtime = kind === "runtime";
+  return <div className="import-overlay" role="presentation" onMouseDown={(event) => {
+    if (event.target === event.currentTarget) onClose();
+  }}>
+    <section className="action-guide" role="dialog" aria-modal="true" aria-labelledby="action-guide-title">
+      <header>
+        <div>
+          <label className="section-label">WORKSPACE ACTIONS</label>
+          <h2 id="action-guide-title">Open an example or save this view</h2>
+        </div>
+        <button type="button" aria-label="Close workspace actions" onClick={onClose}>×</button>
+      </header>
+      <section>
+        <header>
+          <b>Examples</b>
+          <span>Replace the current workspace with bundled, clearly labeled evidence.</span>
+        </header>
+        <div className="action-options">
+          <button type="button" onClick={() => onExample("runtime")}>
+            <span><b>Argus workflow replay</b><small>Synthetic process, file, and TCP evidence</small></span><i>Open →</i>
+          </button>
+          <button type="button" onClick={() => onExample("accelerator")}>
+            <span><b>Accelerator server</b><small>CPU, NUMA, PCIe, GPU, NIC, and storage</small></span><i>Open →</i>
+          </button>
+          <button type="button" onClick={() => onExample("workstation")}>
+            <span><b>Linux workstation</b><small>Compact hardware topology snapshot</small></span><i>Open →</i>
+          </button>
+        </div>
+      </section>
+      <section>
+        <header>
+          <b>Export current evidence</b>
+          <span>Save the normalized data behind the current workspace.</span>
+        </header>
+        <div className="action-options export-options">
+          {runtime ? <button type="button" onClick={() => onExport("runtime")}>
+            <span><b>Runtime capture JSON</b><small>Normalized observations, provenance, and diagnostics</small></span><i>Save ↓</i>
+          </button> : <>
+            <button type="button" onClick={() => onExport("snapshot")}>
+              <span><b>Topology snapshot JSON</b><small>Canonical facts, relationships, and provenance</small></span><i>Save ↓</i>
+            </button>
+            <button type="button" onClick={() => onExport("svg")}>
+              <span><b>Diagram SVG</b><small>Portable rendering of the current topology view</small></span><i>Save ↓</i>
+            </button>
+          </>}
+        </div>
+      </section>
+    </section>
+  </div>;
 }
 
 function ContourMark() {
@@ -281,4 +659,15 @@ function searchIdentifier(node: TopologyNode): string { return String(node.facts
 function truncate(value: string, max: number): string { return value.length <= max ? value : `${value.slice(0, max - 1)}…`; }
 function formatBytes(bytes: number): string { if (!bytes) return "unknown"; const gib = bytes / 1024 ** 3; return `${Number.isInteger(gib) ? gib : gib.toFixed(1)} GiB`; }
 function download(content: string, type: string, filename: string) { const url = URL.createObjectURL(new Blob([content], { type })); const anchor = document.createElement("a"); anchor.href = url; anchor.download = filename; anchor.click(); URL.revokeObjectURL(url); }
+function isRuntimeWindow(value: unknown): value is RuntimeWindow {
+  if (!isRecord(value)
+    || value.schemaVersion !== "contour.runtime-window/v1"
+    || !isRecord(value.capture)
+    || !isRecord(value.navigation)) return false;
+  return value.capture.schemaVersion === "contour.runtime/v1"
+    && typeof value.navigation.hasEarlier === "boolean"
+    && typeof value.navigation.live === "boolean"
+    && (value.navigation.earlierCursor === undefined
+      || typeof value.navigation.earlierCursor === "string");
+}
 function isRecord(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value); }

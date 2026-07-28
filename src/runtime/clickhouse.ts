@@ -4,6 +4,18 @@ export interface ClickHouseArgusOptions {
   username?: string;
   password?: string;
   limit: number;
+  timeoutMs?: number;
+}
+
+export interface ClickHouseArgusBatch {
+  records: string;
+  earlierCursor?: string;
+  hasEarlier: boolean;
+}
+
+export interface ClickHouseArgusPosition {
+  cursor?: string;
+  before?: string;
 }
 
 export class ClickHouseReadError extends Error {}
@@ -12,15 +24,42 @@ export async function readArgusJsonLinesFromClickHouse(
   options: ClickHouseArgusOptions,
   request: typeof fetch = fetch,
 ): Promise<string> {
+  return (await readArgusBatchFromClickHouse(options, undefined, request)).records;
+}
+
+export async function readArgusBatchFromClickHouse(
+  options: ClickHouseArgusOptions,
+  position?: ClickHouseArgusPosition,
+  request: typeof fetch = fetch,
+): Promise<ClickHouseArgusBatch> {
   const endpoint = parseEndpoint(options.endpoint);
   const database = identifier(options.database, "database");
   const limit = positiveInteger(options.limit, "limit");
+  const timeoutMs = options.timeoutMs ?? 5_000;
+  if (position?.cursor && position.before) {
+    throw new ClickHouseReadError("Choose either a history cursor or a timestamp, not both.");
+  }
+  const boundary = position?.cursor ? decodeCursor(position.cursor) : undefined;
+  const before = position?.before ? timestamp(position.before) : undefined;
+  if (boundary) {
+    endpoint.searchParams.set("param_cursor_timestamp", boundary.timestamp);
+  }
+  if (before) endpoint.searchParams.set("param_before", before);
   const query = [
-    "SELECT Body",
+    "SELECT CursorTimestamp, Body",
     "FROM (",
-    `  SELECT Timestamp, Body FROM ${database}.otel_logs`,
+    "  SELECT",
+    "    Timestamp,",
+    "    toString(Timestamp) AS CursorTimestamp,",
+    "    Body",
+    `  FROM ${database}.otel_logs`,
+    ...(boundary ? [
+      "  WHERE Timestamp < parseDateTime64BestEffort({cursor_timestamp:String})",
+    ] : before ? [
+      "  WHERE Timestamp < parseDateTime64BestEffort({before:String})",
+    ] : []),
     "  ORDER BY Timestamp DESC",
-    `  LIMIT ${limit}`,
+    `  LIMIT ${limit + 1}`,
     ")",
     "ORDER BY Timestamp ASC",
     "FORMAT JSONEachRow",
@@ -32,7 +71,12 @@ export async function readArgusJsonLinesFromClickHouse(
 
   let response: Response;
   try {
-    response = await request(endpoint, { method: "POST", headers, body: query });
+    response = await request(endpoint, {
+      method: "POST",
+      headers,
+      body: query,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
   } catch (error) {
     throw new ClickHouseReadError(
       `Could not reach ClickHouse at ${endpoint.origin}: ${error instanceof Error ? error.message : String(error)}`,
@@ -45,19 +89,33 @@ export async function readArgusJsonLinesFromClickHouse(
     );
   }
 
-  const records = body.split(/\r?\n/).filter((line) => line.trim()).map((line, index) => {
+  const rows = body.split(/\r?\n/).filter((line) => line.trim()).map((line, index) => {
     let row: unknown;
     try {
       row = JSON.parse(line);
     } catch {
       throw new ClickHouseReadError(`ClickHouse returned invalid JSON on row ${index + 1}.`);
     }
-    if (!isRecord(row) || typeof row.Body !== "string") {
-      throw new ClickHouseReadError(`ClickHouse row ${index + 1} has no string Body.`);
+    if (!isRecord(row)
+      || typeof row.Body !== "string"
+      || typeof row.CursorTimestamp !== "string") {
+      throw new ClickHouseReadError(
+        `ClickHouse row ${index + 1} has no string Body or timestamp cursor.`,
+      );
     }
-    return row.Body;
+    return {
+      body: row.Body,
+      timestamp: row.CursorTimestamp,
+    };
   });
-  return records.join("\n");
+  const hasEarlier = rows.length > limit;
+  const visibleRows = hasEarlier ? rows.slice(rows.length - limit) : rows;
+  const oldest = visibleRows[0];
+  return {
+    records: visibleRows.map((row) => row.body).join("\n"),
+    earlierCursor: oldest ? encodeCursor(oldest.timestamp) : undefined,
+    hasEarlier,
+  };
 }
 
 function parseEndpoint(value: string): URL {
@@ -85,6 +143,31 @@ function positiveInteger(value: number, name: string): number {
     throw new ClickHouseReadError(`ClickHouse ${name} must be an integer from 1 to 100000.`);
   }
   return value;
+}
+
+function timestamp(value: string): string {
+  const milliseconds = Date.parse(value);
+  if (!Number.isFinite(milliseconds)) {
+    throw new ClickHouseReadError("Invalid ClickHouse history timestamp.");
+  }
+  return new Date(milliseconds).toISOString();
+}
+
+function encodeCursor(timestamp: string): string {
+  return Buffer.from(JSON.stringify({ timestamp }), "utf8").toString("base64url");
+}
+
+function decodeCursor(value: string): { timestamp: string } {
+  try {
+    const decoded: unknown = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (!isRecord(decoded)
+      || typeof decoded.timestamp !== "string") {
+      throw new Error();
+    }
+    return { timestamp: decoded.timestamp };
+  } catch {
+    throw new ClickHouseReadError("Invalid ClickHouse history cursor.");
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -1,11 +1,15 @@
 # Contour
 
-Contour is a deterministic Linux system-topology explorer. It collects CPU, NUMA, PCIe, GPU, NIC, RDMA, and storage relationships, then opens a local browser UI for inspection, evidence-backed path dossiers, prioritized findings, provenance, and SVG/JSON export.
+Contour is an evidence-backed topology explorer with two modes:
 
-Contour also has an experimental runtime track for replaying NVIDIA DOCA Argus
-activity as a separate, temporal software topology. It reconstructs
-process-execution, container, file, TCP endpoint, connection, and interface
-relationships without mixing them into the physical hardware schema.
+- **Physical topology** collects Linux CPU, NUMA, PCIe, GPU, NIC, RDMA, and
+  storage evidence.
+- **Runtime topology** consumes NVIDIA DOCA Argus events and reconstructs
+  process, container, file, TCP connection, endpoint, and interface
+  relationships over time.
+
+Runtime mode reads the events exported by Argus from BlueField. Contour does
+not log in to or install anything on the monitored host.
 
 ![Contour I/O topology showing a selected NIC, its PCIe path, related RDMA device and interface, provenance, and verification command](.github/assets/contour-overview.png)
 
@@ -22,6 +26,10 @@ relationships without mixing them into the physical hardware schema.
 | Primarily presents containment | Correlates PCI devices, netdevs, RDMA ports, NUMA evidence, and known paths |
 | Produces a picture | Produces an evidence-backed route dossier with exact verification commands |
 
+For runtime investigation, Argus supplies individual activity records. Contour
+normalizes those records, correlates them into stable executions and
+relationships, and keeps each conclusion linked to its source evidence.
+
 ### Why it matters
 
 - Reduces the time spent correlating `lstopo`, sysfs, `ip`, and `rdma` output during bring-up or incident investigation.
@@ -35,6 +43,8 @@ relationships without mixing them into the physical hardware schema.
 - Normalization produces one versioned canonical topology schema; the UI never parses command-specific output.
 - Stable physical identities, typed relationships, diagnostics, and per-fact provenance make every displayed claim traceable.
 - Deterministic projection, hierarchy layout, and SVG rendering produce the same result from the same normalized snapshot.
+- The runtime adapter and temporal reducer keep Argus parsing, entity identity,
+  correlation, and UI presentation separate.
 
 ## Quick start on Linux
 
@@ -83,14 +93,14 @@ For later source updates, rerun the same `rsync` command and `npm install` on Li
 ## Commands
 
 ```bash
-contour                    # inspect this Linux machine
-contour topology.json      # open a saved Contour snapshot
-contour topology.xml       # open a saved lstopo XML capture
-contour runtime argus.jsonl # replay an Argus activity capture
+contour                      # inspect this Linux machine
+contour topology.json        # open a saved Contour snapshot
+contour topology.xml         # open a saved lstopo XML capture
+contour runtime argus.jsonl  # replay an Argus activity capture
 contour runtime --clickhouse # read the latest Argus events from ClickHouse
-contour doctor             # check prerequisites
-contour --help             # show normal usage
-contour advanced           # show scripting commands
+contour doctor               # check prerequisites
+contour --help               # show normal usage
+contour advanced             # show scripting commands
 ```
 
 Mac and Windows can open saved XML or JSON snapshots, but live collection is Linux-only. One way to capture XML without installing Contour remotely is:
@@ -108,19 +118,28 @@ contour topology.xml
 - Search by model, device class, interface, RDMA name, or PCI BDF.
 - Choose endpoint A and endpoint B to highlight their known containment path.
 - Inspect the path dossier for hop-by-hop identity, explicit NUMA evidence, scoped findings, uncertainty, and verification commands.
+- Use the mode-aware import guide to distinguish saved topology or runtime evidence from live collection.
 - Export the canonical snapshot or current deterministic SVG from the browser.
 
-The **Runtime** view turns Argus activity into a process-centered software flow:
-container context, touched files, TCP connections, local interfaces, peer
-endpoints, and the relative evidence sequence behind the graph. Open an Argus
-JSONL file or run `contour runtime <argus.jsonl>` to replay a capture. Runtime
-relationships retain their evidence basis, and ambiguous process identities
-become diagnostics rather than guessed PID correlations. See
+The **Runtime** view turns separate Argus events into a process-centered
+software flow. It shows container context, touched files, TCP connections,
+local interfaces, peer endpoints, and the evidence sequence behind the graph.
+Relationships are labeled as observed or inferred. If process identity is
+ambiguous, Contour reports that ambiguity instead of merging records by PID.
+
+An endpoint remains an IP and port unless an evidence source explicitly
+identifies it. Contour does not guess application or service names from an
+address.
+
+Runtime captures can be replayed from JSONL or read live from bounded
+ClickHouse windows. The UI supports process search, replay, earlier and newer
+windows, UTC jumps, and a searchable evidence ledger. See
 [`docs/RUNTIME.md`](docs/RUNTIME.md) for the experimental contract, network
 topology boundary, and current adapter ownership.
 
 For the receiver deployment, run Contour where ClickHouse is reachable directly
-or through an SSH tunnel:
+or through a tunnel to the storage environment. This does not require SSH
+access to the monitored workload:
 
 ```bash
 cd deploy/argus-observability
@@ -129,11 +148,12 @@ contour runtime --clickhouse
 ```
 
 `CLICKHOUSE_URL` defaults to `http://127.0.0.1:8123`; the database defaults to
-`otel`. The reader takes the latest 500 stored bodies, restores chronological
-order, and passes the raw JSON records to the same Argus normalizer as JSONL
-replay.
+`otel`. The live reader refreshes the latest 500 stored bodies every two
+seconds, restores chronological order, and passes the raw JSON records to the
+same Argus normalizer as JSONL replay. The focused flow animates only
+relationships backed by the active observation; it does not simulate packets.
 
-Edges represent observed or derived topology facts. When sources provide it, the inspector shows PCIe negotiated/capable width and speed, Ethernet link/FEC state, RDMA counters, driver health, and optional NVIDIA evidence. Counters and topology do not by themselves prove congestion; unknown information remains distinct from absent information.
+Edges represent observed or inferred topology facts. When sources provide it, the inspector shows PCIe negotiated/capable width and speed, Ethernet link/FEC state, RDMA counters, driver health, and optional NVIDIA evidence. Counters and topology do not by themselves prove congestion; unknown information remains distinct from absent information.
 
 ## Development
 
@@ -148,7 +168,17 @@ Use `npm run dev` for UI development. The durable topology contract and collecto
 
 ## Current limits
 
-Live collection combines hwloc XML, Linux PCI/network/InfiniBand sysfs, iproute2, ethtool link and selected nonzero counters, RDMA device/link/statistics data, devlink port/health data, and optional NVIDIA XML/`mlxlink` evidence. Findings are deterministic checks over one snapshot, not proof of congestion or current failure. Direct NVML, NVMe subsystem enrichment, counter deltas, and fabric-wide topology remain planned. Some driver health, module, and `mlxlink` data may require permissions Contour does not request automatically.
+Physical collection combines hwloc XML, Linux PCI/network/InfiniBand sysfs,
+iproute2, ethtool, RDMA, devlink, and optional NVIDIA evidence. Findings are
+checks over one snapshot, not proof of congestion or failure. Direct NVML,
+NVMe subsystem enrichment, physical link counter deltas, and fabric-wide
+topology remain planned.
+
+Runtime topology is limited to the events Argus exports in the selected window.
+It can reconstruct software communication paths, but not switch hops, VLANs,
+routing intent, DNS names, or Kubernetes service identity. Those require
+separate remote evidence sources. Replay animation shows evidence progression,
+not captured packets.
 
 Snapshots may contain identifying hardware or environment data such as hostnames, interfaces, PCI identifiers, GUIDs, serials, and source paths. Review them before sharing.
 

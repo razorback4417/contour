@@ -8,8 +8,8 @@ only when they share explicit host or interface evidence.
 ## Ownership
 
 - An input adapter owns knowledge of its external wire format and version.
-- The ClickHouse reader owns only the storage query and extraction of raw
-  `Body` strings; it does not interpret Argus fields.
+- The ClickHouse reader owns storage ordering, opaque history cursors, and
+  extraction of raw `Body` strings; it does not interpret Argus fields.
 - The runtime normalizer owns the `contour.runtime/v1` observation contract.
 - The temporal reducer owns entity identity, lifecycle state, and graph edges.
 - The UI consumes normalized captures and never parses Argus fields.
@@ -91,7 +91,30 @@ node dist-cli/cli.js runtime fixtures/argus/process-network-sequence.jsonl --no-
 The browser can also open `.jsonl` Argus records or canonical
 `contour.runtime/v1` JSON. The built-in Runtime example is always labeled
 synthetic. A user-supplied capture is labeled as a replay; the UI does not claim
-that it was collected from validated hardware.
+that it was collected from validated hardware. **Import runtime evidence** first
+shows the accepted formats and keeps live ClickHouse setup separate from
+offline file import.
+
+The ClickHouse mode refreshes its bounded window every two seconds. The UI
+groups repeated executions behind a searchable process picker, follows the
+latest evidence by default, and can replay the focused execution. Choosing
+replay or an event freezes that evidence window; **Earlier window** pages
+through retained ClickHouse history, **Newer** returns through windows already
+visited in the browser, and a UTC timestamp can jump to the bounded page ending
+before that time. **Live** explicitly resumes ingestion. The browser treats
+storage cursors as opaque. If the pinned execution leaves the bounded live
+window, Contour pauses instead of silently switching to a different process.
+The **Evidence ledger** lists the normalized observations in the current bounded
+window, not the entire retained ClickHouse table. It initially renders 100 rows,
+supports process/PID/path/address/activity search and kind filtering, and loads
+additional rows on demand. Selecting a row returns to the associated execution
+when that process identity was reconstructable.
+Animated pulses travel only across nodes and edges whose evidence contains the
+active normalized observation. For repeated TCP observations, pulse size reflects
+the increase from the prior byte-counter sample for that connection. The first
+sample is labeled as a cumulative counter. This is observed state progression,
+not a packet animation or instantaneous throughput measurement. If refresh fails,
+Contour keeps the last valid graph and marks the feed stale.
 
 The receiver deployment can be read directly:
 
@@ -101,6 +124,15 @@ contour runtime --clickhouse
 ```
 
 The ClickHouse reader selects a bounded newest window, restores chronological
-order, and transports each `Body` unchanged into the Argus adapter. It defaults
-to `http://127.0.0.1:8123`, database `otel`, and 500 records. Override the
-endpoint with `CLICKHOUSE_URL` or the window with `--limit`.
+order, and transports each `Body` unchanged into the Argus adapter. Earlier
+pages use a timestamp cursor encoded at the storage boundary, so the UI never
+learns ClickHouse ordering semantics or adds a secondary sort over event bodies.
+It defaults to
+`http://127.0.0.1:8123`, database `otel`, and 500 records. Override the endpoint
+with `CLICKHOUSE_URL` or the window with `--limit`. Reads time out after five
+seconds so a slow backend cannot leave the live UI waiting indefinitely.
+
+Raw Argus records remain available at the ingestion boundary for provenance,
+but are omitted from the live browser payload. The UI receives normalized
+observations and evidence IDs only; this keeps the two-second refresh bounded
+without changing graph construction.

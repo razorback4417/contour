@@ -4,6 +4,7 @@ import type {
   RuntimeGraphEdge,
   RuntimeGraphNode,
   RuntimeNodeKind,
+  RuntimeObservation,
 } from "../runtime/types";
 
 export interface RuntimeGraphSummary {
@@ -33,9 +34,26 @@ export interface RuntimeFocusLimits {
   connections: number;
 }
 
+export interface RuntimeEvidenceHighlight {
+  nodeIds: Set<string>;
+  edgeIds: Set<string>;
+}
+
+export interface RuntimeNodeInterpretation {
+  label: string;
+  title: string;
+  summary: string;
+}
+
+export interface RuntimeTrafficSample {
+  bytes: number;
+  label: string;
+  basis: "delta" | "counter";
+}
+
 const defaultFocusLimits: RuntimeFocusLimits = {
-  files: 5,
-  connections: 4,
+  files: 3,
+  connections: 2,
 };
 
 export function summarizeRuntimeGraph(graph: RuntimeGraph): RuntimeGraphSummary {
@@ -93,14 +111,17 @@ export function projectRuntimeFocus(
     ...visibleConnections.map((node) => node.id),
   ]);
 
-  for (const relationship of runtimeRelationships(graph, processId)) {
-    if (
-      relationship.peer.kind === "container"
-      || relationship.edge.kind === "parent_of"
-    ) {
-      visibleIds.add(relationship.peer.id);
-    }
-  }
+  const contexts = runtimeRelationships(graph, processId)
+    .filter((relationship) =>
+      relationship.peer.kind === "container" || relationship.edge.kind === "parent_of")
+    .map((relationship) => relationship.peer)
+    .filter((node, index, nodes) => nodes.findIndex((candidate) => candidate.id === node.id) === index)
+    .sort((left, right) =>
+      left.kind.localeCompare(right.kind)
+      || left.label.localeCompare(right.label)
+      || left.id.localeCompare(right.id))
+    .slice(0, 3);
+  contexts.forEach((node) => visibleIds.add(node.id));
   for (const connection of visibleConnections) {
     for (const relationship of runtimeRelationships(graph, connection.id)) {
       if (
@@ -120,6 +141,104 @@ export function projectRuntimeFocus(
     hiddenFiles: Math.max(0, files.length - visibleFiles.length),
     hiddenConnections: Math.max(0, connections.length - visibleConnections.length),
   };
+}
+
+export function highlightRuntimeEvidence(
+  projection: RuntimeFocusProjection,
+  observationId: string | undefined,
+): RuntimeEvidenceHighlight {
+  if (!observationId) return { nodeIds: new Set(), edgeIds: new Set() };
+  return {
+    nodeIds: new Set(projection.nodes
+      .filter((node) => node.evidence.includes(observationId))
+      .map((node) => node.id)),
+    edgeIds: new Set(projection.edges
+      .filter((edge) => edge.evidence.includes(observationId))
+      .map((edge) => edge.id)),
+  };
+}
+
+export function runtimeTrafficSample(
+  observations: RuntimeObservation[],
+  activeIndex: number,
+): RuntimeTrafficSample | undefined {
+  const active = observations[activeIndex];
+  const activeBytes = connectionBytes(active);
+  if (!active?.connection || activeBytes === undefined) return undefined;
+  const identity = connectionIdentity(active);
+
+  for (let index = activeIndex - 1; index >= 0; index -= 1) {
+    const prior = observations[index];
+    if (connectionIdentity(prior) !== identity) continue;
+    const priorBytes = connectionBytes(prior);
+    if (priorBytes === undefined) continue;
+    if (activeBytes < priorBytes) break;
+    const delta = activeBytes - priorBytes;
+    return {
+      bytes: delta,
+      label: `+${formatBytes(delta)} since prior sample`,
+      basis: "delta",
+    };
+  }
+
+  return {
+    bytes: activeBytes,
+    label: `${formatBytes(activeBytes)} counter observed`,
+    basis: "counter",
+  };
+}
+
+export function runtimeNodeInterpretation(
+  node: RuntimeGraphNode,
+  relationships: RuntimeRelationship[],
+): RuntimeNodeInterpretation | undefined {
+  const path = typeof node.facts.path === "string" ? node.facts.path : "";
+  if (node.kind === "file" && path.includes("anon_inode:[pidfd]")) {
+    const processCount = new Set(relationships
+      .filter(({ peer }) => peer.kind === "process_execution")
+      .map(({ peer }) => peer.id)).size;
+    return {
+      label: "KERNEL OBJECT · NOT A DISK FILE",
+      title: "Process lifecycle handle",
+      summary: `A pidfd is a stable handle used to monitor or signal another process. ${processCount > 1 ? `${processCount} executions touched this handle; ` : ""}repeated opens and closes are consistent with process supervision, but do not prove intent.`,
+    };
+  }
+  if (node.kind === "file" && path.startsWith("socket:[")) {
+    return {
+      label: "KERNEL OBJECT",
+      title: "Socket descriptor",
+      summary: "This is an in-kernel socket handle rather than a filesystem path. Follow a correlated TCP flow for its local and peer endpoints.",
+    };
+  }
+  if (node.kind === "file") {
+    const mode = String(node.facts.mode ?? "").toUpperCase();
+    const writeCapable = mode.includes("WRITE") || mode.includes("APPEND");
+    const processes = relationships
+      .filter(({ peer }) => peer.kind === "process_execution")
+      .map(({ peer }) => peer.label);
+    return {
+      label: "OBSERVED FILE ACCESS",
+      title: writeCapable ? "Write-capable file access" : "File opened by this execution",
+      summary: `${processes[0] ?? "The selected execution"} opened this ${String(node.facts.descriptorType ?? "file").toLowerCase()}${mode ? ` with ${mode} mode` : ""}. Argus observed the descriptor activity; content semantics are not inferred.`,
+    };
+  }
+  if (node.kind === "tcp_connection") {
+    return {
+      label: "OBSERVED COMMUNICATION",
+      title: "Process-owned TCP flow",
+      summary: "Argus tied this socket to the selected execution. Endpoint and interface edges show the observed tuple and any address-based interface correlation.",
+    };
+  }
+  if (node.kind === "process_execution") {
+    const files = relationships.filter(({ peer }) => peer.kind === "file").length;
+    const connections = relationships.filter(({ peer }) => peer.kind === "tcp_connection").length;
+    return {
+      label: "RECONSTRUCTED EXECUTION",
+      title: `${files} touched resources · ${connections} TCP flows`,
+      summary: "This view is a bounded evidence neighborhood for one process execution, not every event emitted by Argus.",
+    };
+  }
+  return undefined;
 }
 
 export function runtimeRelationships(
@@ -178,4 +297,29 @@ function peersForEdges(
       right.lastSeenAt.localeCompare(left.lastSeenAt)
       || left.label.localeCompare(right.label)
       || left.id.localeCompare(right.id));
+}
+
+function connectionIdentity(observation: RuntimeObservation | undefined): string | undefined {
+  const connection = observation?.connection;
+  if (!connection) return undefined;
+  return connection.descriptorId
+    ?? `${connection.source.address}:${connection.source.port}->${connection.destination.address}:${connection.destination.port}`;
+}
+
+function connectionBytes(observation: RuntimeObservation | undefined): number | undefined {
+  const connection = observation?.connection;
+  if (!connection || (connection.bytesIn === undefined && connection.bytesOut === undefined)) {
+    return undefined;
+  }
+  return (connection.bytesIn ?? 0) + (connection.bytesOut ?? 0);
+}
+
+function formatBytes(value: number): string {
+  if (value < 1_000) return `${value} B`;
+  if (value < 1_000_000) return `${stripTrailingZero((value / 1_000).toFixed(1))} KB`;
+  return `${stripTrailingZero((value / 1_000_000).toFixed(1))} MB`;
+}
+
+function stripTrailingZero(value: string): string {
+  return value.replace(/\.0$/, "");
 }

@@ -22,7 +22,7 @@ export interface RuntimeSource {
   messageId?: string;
   activityName: string;
   synthetic: boolean;
-  rawRecord: string;
+  rawRecord?: string;
 }
 
 export interface RuntimeProcess {

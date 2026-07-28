@@ -70,9 +70,10 @@ function validateObservation(value: unknown, index: number): asserts value is Ru
     throw new RuntimeCaptureParseError(`${owner} has unsupported evidence basis: ${String(value.basis)}`);
   }
   if (!isRecord(value.source)) throw new RuntimeCaptureParseError(`${owner} source is missing.`);
-  for (const field of ["collector", "product", "activityName", "rawRecord"]) {
+  for (const field of ["collector", "product", "activityName"]) {
     requireString(value.source, field, `${owner} source`);
   }
+  requireOptionalString(value.source, "rawRecord", `${owner} source`);
   if (typeof value.source.synthetic !== "boolean") {
     throw new RuntimeCaptureParseError(`${owner} source synthetic flag must be boolean.`);
   }

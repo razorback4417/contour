@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   RuntimeCapture,
   RuntimeGraph,
@@ -8,9 +8,12 @@ import type {
 } from "../runtime/types";
 import {
   defaultRuntimeFocus,
+  highlightRuntimeEvidence,
   projectRuntimeFocus,
+  runtimeNodeInterpretation,
   runtimeRelationshipLabel,
   runtimeRelationships,
+  runtimeTrafficSample,
   summarizeRuntimeGraph,
   type RuntimeFocusProjection,
 } from "./runtime-projection";
@@ -30,72 +33,307 @@ interface PositionedNode {
   y: number;
 }
 
+export interface RuntimeActivityGroup {
+  observation: RuntimeObservation;
+  endIndex: number;
+  count: number;
+  targets: number;
+  category: "container" | "file" | "network" | "process";
+  kinds: Set<RuntimeObservation["kind"]>;
+}
+
+interface RuntimeProcessGroup {
+  label: string;
+  executions: RuntimeGraphNode[];
+  records: number;
+}
+
 export function RuntimeWorkspace({
   capture,
   graph,
+  live = false,
+  following = false,
+  stale = false,
+  hasEarlier = false,
+  hasNewer = false,
+  historyAction,
+  historyError,
+  onLoadEarlier,
+  onLoadNewer,
+  onJumpToTime,
+  onJumpLive,
+  onFollowingChange,
+  onFocusChange,
 }: {
   capture: RuntimeCapture;
   graph: RuntimeGraph;
+  live?: boolean;
+  following?: boolean;
+  stale?: boolean;
+  hasEarlier?: boolean;
+  hasNewer?: boolean;
+  historyAction?: "earlier" | "jump" | "live";
+  historyError?: string;
+  onLoadEarlier?: () => Promise<boolean>;
+  onLoadNewer?: () => void;
+  onJumpToTime?: (before: string) => Promise<boolean>;
+  onJumpLive?: () => Promise<boolean>;
+  onFollowingChange?: (following: boolean) => void;
+  onFocusChange?: (focusId: string | undefined) => void;
 }) {
-  const summary = summarizeRuntimeGraph(graph);
-  const processes = graph.nodes
+  const summary = useMemo(() => summarizeRuntimeGraph(graph), [graph]);
+  const processes = useMemo(() => graph.nodes
     .filter((node) => node.kind === "process_execution")
     .sort((left, right) =>
       right.lastSeenAt.localeCompare(left.lastSeenAt)
       || left.label.localeCompare(right.label)
-      || left.id.localeCompare(right.id));
-  const fallbackFocus = defaultRuntimeFocus(graph);
+      || left.id.localeCompare(right.id)), [graph]);
+  const fallbackFocus = useMemo(() => defaultRuntimeFocus(graph), [graph]);
   const [requestedFocusId, setRequestedFocusId] = useState(fallbackFocus?.id);
   const focusId = processes.some((node) => node.id === requestedFocusId)
     ? requestedFocusId
     : fallbackFocus?.id;
-  const projection = focusId ? projectRuntimeFocus(graph, focusId) : undefined;
+  const processGroups = useMemo(() => groupProcesses(processes), [processes]);
+  const [processQuery, setProcessQuery] = useState("");
+  const [ledgerOpen, setLedgerOpen] = useState(false);
+  const filteredProcessGroups = useMemo(() => {
+    const query = processQuery.trim().toLowerCase();
+    return query
+      ? processGroups.filter((group) =>
+        group.label.toLowerCase().includes(query)
+        || group.executions.some((node) =>
+          String(node.facts.processId ?? "").includes(query)
+          || String(node.facts.executablePath ?? "").toLowerCase().includes(query)))
+      : processGroups;
+  }, [processGroups, processQuery]);
+  const processPicker = useRef<HTMLDetailsElement>(null);
+  const windowPicker = useRef<HTMLDetailsElement>(null);
+  const [jumpTime, setJumpTime] = useState(() => formatDateTimeInput(capture.endedAt));
+  const projection = useMemo(
+    () => focusId ? projectRuntimeFocus(graph, focusId) : undefined,
+    [focusId, graph],
+  );
   const [requestedSelectionId, setRequestedSelectionId] = useState(focusId);
   const selectedNode = projection?.nodes.find((node) => node.id === requestedSelectionId)
     ?? projection?.focus;
   const synthetic = capture.observations.length > 0
     && capture.observations.every((observation) => observation.source.synthetic);
-  const focusedActivity = projection
-    ? activityForProcess(capture, projection.focus)
-    : [];
+  const focusedActivity = useMemo(
+    () => projection ? activityForProcess(capture, projection.focus) : [],
+    [capture, projection],
+  );
+  const activityGroups = useMemo(() => groupRuntimeActivity(focusedActivity), [focusedActivity]);
+  const [playback, setPlayback] = useState<"live" | "replay" | "paused">(
+    live && following ? "live" : "replay",
+  );
+  const [playhead, setPlayhead] = useState(0);
+  const activeIndex = Math.min(playhead, Math.max(0, activityGroups.length - 1));
+  const activeGroup = activityGroups[activeIndex];
+  const activeObservation = activeGroup?.observation;
+  const activeTraffic = runtimeTrafficSample(focusedActivity, activeGroup?.endIndex ?? 0);
+  const visibleActivity = useMemo(
+    () => activityWindow(activityGroups, activeIndex, 8),
+    [activeIndex, activityGroups],
+  );
+
+  useEffect(() => {
+    if (live && following) setPlayback("live");
+    else if (!live) setPlayback("replay");
+  }, [following, live]);
+
+  useEffect(() => {
+    onFocusChange?.(focusId);
+  }, [focusId, onFocusChange]);
+
+  useEffect(() => {
+    setPlayhead(playback === "live" ? Math.max(0, activityGroups.length - 1) : 0);
+  }, [focusId]);
+
+  useEffect(() => {
+    setJumpTime(formatDateTimeInput(capture.endedAt));
+  }, [capture.captureId, capture.endedAt]);
+
+  useEffect(() => {
+    if (playback !== "live") return;
+    setPlayhead(Math.max(0, activityGroups.length - 1));
+  }, [activityGroups.length, capture.captureId, playback]);
+
+  useEffect(() => {
+    if (playback !== "replay" || activityGroups.length < 2) return;
+    const timer = window.setInterval(() => {
+      setPlayhead((current) => (current + 1) % activityGroups.length);
+    }, 980);
+    return () => window.clearInterval(timer);
+  }, [activityGroups.length, playback]);
+
+  useEffect(() => {
+    const dismissOpenPicker = (event: globalThis.PointerEvent) => {
+      if (!(event.target instanceof Node)) return;
+      for (const picker of [processPicker.current, windowPicker.current]) {
+        if (picker?.open && !picker.contains(event.target)) picker.removeAttribute("open");
+      }
+    };
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      processPicker.current?.removeAttribute("open");
+      windowPicker.current?.removeAttribute("open");
+    };
+    document.addEventListener("pointerdown", dismissOpenPicker);
+    document.addEventListener("keydown", dismissOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", dismissOpenPicker);
+      document.removeEventListener("keydown", dismissOnEscape);
+    };
+  }, []);
 
   function chooseProcess(id: string) {
     setRequestedFocusId(id);
     setRequestedSelectionId(id);
+    setProcessQuery("");
+    processPicker.current?.removeAttribute("open");
+    onFocusChange?.(id);
+  }
+
+  function choosePlayback(next: "live" | "replay" | "paused") {
+    setPlayback(next);
+    if (live) onFollowingChange?.(next === "live");
   }
 
   return <div className="runtime-workspace">
     <header className="runtime-heading">
       <div>
-        <label className="section-label">ARGUS SOFTWARE FLOW</label>
-        <h1>What did this execution touch?</h1>
+        <label className="section-label">ARGUS RUNTIME TOPOLOGY</label>
+        <h1>Observed software paths</h1>
         <p>
           {capture.host.hostname ?? capture.host.id}
           {" · "}{formatWindow(capture.startedAt, capture.endedAt)}
-          {" · "}{capture.observations.length} normalized observations
+          {" · "}{processes.length} executions
+          {" · "}{capture.observations.length} observations
         </p>
       </div>
-      <span className={synthetic ? "synthetic" : "capture"}>
-        {synthetic ? "SYNTHETIC REPLAY" : "LIVE CAPTURE"}
+      <span className={synthetic ? "synthetic" : stale ? "stale" : "capture"}>
+        {synthetic
+          ? "SYNTHETIC REPLAY"
+          : stale
+            ? "FEED STALE · LAST GOOD WINDOW"
+            : live && !following
+              ? "LIVE FEED · VIEW PAUSED"
+              : live
+                ? "LIVE · 2S REFRESH"
+                : "CAPTURE REPLAY"}
       </span>
     </header>
 
-    <section className="runtime-focus-strip" aria-label="Choose an execution">
-      <div className="runtime-focus-label">
-        <span>EXECUTION FOCUS</span>
-        <small>{processes.length} reconstructed</small>
+    <section className="runtime-investigation-bar" aria-label="Runtime investigation controls">
+      <div>
+        <details className="runtime-process-picker" ref={processPicker}>
+          <summary>
+            <span>
+              <label>FOCUSED EXECUTION</label>
+              <b>{projection?.focus.label ?? "No execution selected"}</b>
+              <small>
+                PID {String(projection?.focus.facts.processId ?? "unknown")}
+                {" · "}{projection?.focus.evidence.length ?? 0} evidence records
+              </small>
+            </span>
+            <i>Change</i>
+          </summary>
+          <div className="runtime-process-menu">
+            <input
+              aria-label="Filter executions"
+              placeholder="Filter by process, PID, or executable"
+              value={processQuery}
+              onChange={(event) => setProcessQuery(event.target.value)}
+            />
+            <header>
+              <span>{filteredProcessGroups.length} process names</span>
+              <small>{processes.length} executions in window</small>
+            </header>
+            <div>
+              {filteredProcessGroups.slice(0, 40).map((group) => {
+                const process = group.executions[0];
+                return <button
+                  type="button"
+                  className={group.executions.some((node) => node.id === focusId) ? "active" : ""}
+                  key={group.label}
+                  onClick={() => chooseProcess(process.id)}
+                >
+                  <span>
+                    <b>{group.label}</b>
+                    <small>
+                      {group.executions.length} {group.executions.length === 1 ? "execution" : "executions"}
+                      {" · "}{group.records} records
+                    </small>
+                  </span>
+                  <code>latest PID {String(process.facts.processId ?? "unknown")}</code>
+                </button>;
+              })}
+            </div>
+            {filteredProcessGroups.length > 40 && <footer>
+              Refine the filter to inspect {filteredProcessGroups.length - 40} more process names.
+            </footer>}
+          </div>
+        </details>
       </div>
-      <div className="runtime-processes">
-        {processes.map((process) => <button
-          type="button"
-          className={process.id === focusId ? "active" : ""}
-          key={process.id}
-          onClick={() => chooseProcess(process.id)}
-        >
-          <b>{process.label}</b>
-          <small>PID {String(process.facts.processId ?? "unknown")} · {process.evidence.length} records</small>
-        </button>)}
-      </div>
+      <details className="runtime-window-summary" ref={windowPicker}>
+        <summary>
+          <span>
+            <label>OBSERVATION WINDOW</label>
+            <b>{formatClock(capture.startedAt)}–{formatClock(capture.endedAt)}</b>
+            <small>
+              {formatWindow(capture.startedAt, capture.endedAt)}
+              {" · "}{activityGroups.length} activity episodes
+            </small>
+          </span>
+          {live && <i>Change</i>}
+        </summary>
+        {live && <div className="runtime-window-menu">
+          <header>
+            <b>Navigate retained evidence</b>
+            <small>UTC · bounded by the server record limit</small>
+          </header>
+          <nav>
+            <button
+              type="button"
+              disabled={!hasEarlier || Boolean(historyAction)}
+              onClick={async () => {
+                if (await onLoadEarlier?.()) windowPicker.current?.removeAttribute("open");
+              }}
+            >{historyAction === "earlier" ? "Loading…" : "← Earlier"}</button>
+            <button
+              type="button"
+              disabled={!hasNewer || Boolean(historyAction)}
+              onClick={onLoadNewer}
+            >Newer →</button>
+            <button
+              type="button"
+              disabled={following || Boolean(historyAction)}
+              onClick={async () => {
+                if (await onJumpLive?.()) {
+                  choosePlayback("live");
+                  windowPicker.current?.removeAttribute("open");
+                }
+              }}
+            >{historyAction === "live" ? "Loading…" : "Live"}</button>
+          </nav>
+          <label htmlFor="runtime-jump-time">Jump to events before</label>
+          <div>
+            <input
+              id="runtime-jump-time"
+              type="datetime-local"
+              step="1"
+              value={jumpTime}
+              onChange={(event) => setJumpTime(event.target.value)}
+            />
+            <button type="button" disabled={!jumpTime || Boolean(historyAction)} onClick={async () => {
+              if (await onJumpToTime?.(new Date(`${jumpTime}Z`).toISOString())) {
+                windowPicker.current?.removeAttribute("open");
+              }
+            }}>{historyAction === "jump" ? "Loading…" : "Go"}</button>
+          </div>
+          {historyError && <p className="runtime-window-error" role="status">{historyError}</p>}
+        </div>}
+      </details>
     </section>
 
     {projection && selectedNode ? <div className="runtime-stage">
@@ -103,6 +341,8 @@ export function RuntimeWorkspace({
         <TopologyMap
           projection={projection}
           selectedNodeId={selectedNode.id}
+          activeObservation={activeObservation}
+          activeBytes={activeTraffic?.bytes}
           onSelect={setRequestedSelectionId}
         />
         <div className="runtime-map-key">
@@ -113,7 +353,10 @@ export function RuntimeWorkspace({
           </b>}
         </div>
       </section>
-      <RuntimeDossier graph={graph} node={selectedNode}/>
+      <RuntimeDossier
+        graph={graph}
+        node={selectedNode}
+      />
     </div> : <p className="runtime-empty">
       Argus records arrived, but no process execution could be reconstructed from this window.
     </p>}
@@ -121,23 +364,78 @@ export function RuntimeWorkspace({
     {projection && <section className="runtime-sequence">
       <header>
         <div>
-          <label className="section-label">FOCUSED SEQUENCE</label>
+          <label className="section-label">EXECUTION ACTIVITY</label>
           <h2>{projection.focus.label}</h2>
         </div>
-        <p>Relative to capture start · only evidence attached to this execution</p>
+        {activeObservation && <div className="runtime-active-event" key={activeObservation.id}>
+          <span>{playback === "live" ? "LATEST" : playback === "paused" ? "PAUSED" : "REPLAYING"}</span>
+          <b>
+            {activityGroupLabel(activeGroup)}
+            {activeGroup.count > 1 ? ` ×${activeGroup.count}` : ""}
+          </b>
+          <small>
+            {formatOffset(capture.startedAt, activeObservation.observedAt)}
+            {activeTraffic ? ` · ${activeTraffic.label}` : ""}
+          </small>
+        </div>}
+        <div className="runtime-playback" aria-label="Flow playback controls">
+          {playback === "live" ? <span>FOLLOWING LIVE</span> : <button
+            type="button"
+            onClick={() => choosePlayback(playback === "replay" ? "paused" : "replay")}
+          >{playback === "replay" ? "Pause replay" : "Resume replay"}</button>}
+          {playback === "live" && <button
+            type="button"
+            onClick={() => {
+              choosePlayback("replay");
+              setPlayhead(0);
+            }}
+          >Replay window</button>}
+        </div>
       </header>
       <ol>
-        {focusedActivity.slice(0, 12).map((observation) => <li key={observation.id}>
-          <time>{formatOffset(capture.startedAt, observation.observedAt)}</time>
-          <i/>
-          <b>{observation.kind.replaceAll("_", " ")}</b>
-          <span>{activityTarget(observation)}</span>
-        </li>)}
+        {visibleActivity.map(({ group, index }) => {
+          const traffic = runtimeTrafficSample(focusedActivity, group.endIndex);
+          const observation = group.observation;
+          return <li
+            className={index === activeIndex ? "active" : ""}
+            key={`${observation.id}:${group.count}`}
+          >
+            <button type="button" onClick={() => {
+              setPlayhead(index);
+              choosePlayback("paused");
+            }}>
+              <time>{formatOffset(capture.startedAt, observation.observedAt)}</time>
+              <b>
+                {activityGroupLabel(group)}
+                {group.count > 1 ? ` ×${group.count}` : ""}
+              </b>
+              <span>
+                {group.count > 1
+                  ? `${group.targets} ${group.targets === 1 ? "target" : "targets"} in this burst`
+                  : activityTarget(observation)}
+              </span>
+              {traffic && <small>{traffic.label}</small>}
+            </button>
+          </li>;
+        })}
       </ol>
     </section>}
 
+    {ledgerOpen && <RuntimeEvidenceLedger
+      capture={capture}
+      onClose={() => setLedgerOpen(false)}
+      onInspect={(observation) => {
+        const process = processes.find((node) => node.evidence.includes(observation.id));
+        if (process) chooseProcess(process.id);
+        setLedgerOpen(false);
+      }}
+    />}
+
     <footer className="runtime-evidence">
       <span>{graph.nodes.length} entities · {graph.edges.length} evidence-backed relationships</span>
+      <button type="button" onClick={() => setLedgerOpen(true)}>
+        Evidence ledger · {capture.observations.length}
+      </button>
       <span>
         {summary.inferredEdges > 0 ? `${summary.inferredEdges} inferred edges` : "direct edges only"}
         {" · "}{graph.diagnostics.length} records preserved as diagnostics
@@ -146,18 +444,136 @@ export function RuntimeWorkspace({
   </div>;
 }
 
+function RuntimeEvidenceLedger({
+  capture,
+  onClose,
+  onInspect,
+}: {
+  capture: RuntimeCapture;
+  onClose: () => void;
+  onInspect: (observation: RuntimeObservation) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [kind, setKind] = useState("all");
+  const [limit, setLimit] = useState(100);
+  const kinds = useMemo(
+    () => [...new Set(capture.observations.map((observation) => observation.kind))].sort(),
+    [capture],
+  );
+  const observations = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return capture.observations.filter((observation) => {
+      if (kind !== "all" && observation.kind !== kind) return false;
+      if (!needle) return true;
+      return [
+        observation.kind,
+        observation.process?.name,
+        observation.process?.processId,
+        observation.process?.executablePath,
+        observation.process?.commandLine,
+        observation.fileDescriptor?.path,
+        observation.fileDescriptor?.descriptorId,
+        observation.connection?.source.address,
+        observation.connection?.source.port,
+        observation.connection?.destination.address,
+        observation.connection?.destination.port,
+      ].some((value) => String(value ?? "").toLowerCase().includes(needle));
+    });
+  }, [capture, kind, query]);
+
+  return <div className="runtime-ledger-overlay" role="presentation" onMouseDown={(event) => {
+    if (event.target === event.currentTarget) onClose();
+  }}>
+    <section className="runtime-ledger" role="dialog" aria-modal="true" aria-labelledby="runtime-ledger-title">
+      <header>
+        <div>
+          <label className="section-label">CURRENT OBSERVATION WINDOW</label>
+          <h2 id="runtime-ledger-title">Evidence ledger</h2>
+          <p>
+            {formatClock(capture.startedAt)}–{formatClock(capture.endedAt)}
+            {" · "}{capture.observations.length} normalized observations
+          </p>
+        </div>
+        <button type="button" aria-label="Close evidence ledger" onClick={onClose}>×</button>
+      </header>
+      <div className="runtime-ledger-filters">
+        <input
+          aria-label="Search runtime evidence"
+          placeholder="Search process, PID, path, address, or activity"
+          value={query}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setLimit(100);
+          }}
+        />
+        <select value={kind} onChange={(event) => {
+          setKind(event.target.value);
+          setLimit(100);
+        }}>
+          <option value="all">All activity kinds</option>
+          {kinds.map((value) => <option key={value} value={value}>
+            {value.replaceAll("_", " ")}
+          </option>)}
+        </select>
+      </div>
+      <div className="runtime-ledger-list">
+        <header>
+          <span>TIME</span><span>ACTIVITY</span><span>EXECUTION</span><span>TARGET</span>
+        </header>
+        {observations.slice(0, limit).map((observation) => <button
+          type="button"
+          key={observation.id}
+          onClick={() => onInspect(observation)}
+        >
+          <time title={observation.observedAt}>{formatClock(observation.observedAt)}</time>
+          <span>
+            <b>{observation.kind.replaceAll("_", " ")}</b>
+            <small>{observation.basis}</small>
+          </span>
+          <span>
+            <b>{observation.process?.name ?? "no process context"}</b>
+            <small>PID {observation.process?.processId ?? "—"}</small>
+          </span>
+          <code title={activityTarget(observation)}>{activityTarget(observation)}</code>
+        </button>)}
+      </div>
+      <footer>
+        <span>Showing {Math.min(limit, observations.length)} of {observations.length} matching observations</span>
+        {limit < observations.length && <button type="button" onClick={() => setLimit((value) => value + 100)}>
+          Load 100 more
+        </button>}
+      </footer>
+    </section>
+  </div>;
+}
+
 function TopologyMap({
   projection,
   selectedNodeId,
+  activeObservation,
+  activeBytes,
   onSelect,
 }: {
   projection: RuntimeFocusProjection;
   selectedNodeId: string;
+  activeObservation?: RuntimeObservation;
+  activeBytes?: number;
   onSelect: (id: string) => void;
 }) {
-  const positioned = positionNodes(projection);
-  const positionById = new Map(positioned.map((item) => [item.node.id, item]));
+  const positioned = useMemo(() => positionNodes(projection), [projection]);
+  const positionById = useMemo(
+    () => new Map(positioned.map((item) => [item.node.id, item])),
+    [positioned],
+  );
   const height = Math.max(390, ...positioned.map((item) => item.y + nodeHeight + 34));
+  const highlight = highlightRuntimeEvidence(projection, activeObservation?.id);
+  const activeEdges = projection.edges.filter((edge) => highlight.edgeIds.has(edge.id));
+  const primaryPulse = activeEdges.find((edge) => edge.kind === "owns_connection")
+    ?? activeEdges.find((edge) => edge.kind === "opened");
+  const destinationPulse = activeEdges.find((edge) => edge.kind === "destination_endpoint");
+  const pulseEdgeIds = new Set(
+    [primaryPulse?.id, destinationPulse?.id].filter((id): id is string => Boolean(id)),
+  );
 
   return <svg viewBox={`0 0 1030 ${height}`} role="img" aria-label={`Software topology centered on ${projection.focus.label}`}>
     <defs>
@@ -176,17 +592,39 @@ function TopologyMap({
         const source = positionById.get(edge.source);
         const target = positionById.get(edge.target);
         if (!source || !target) return null;
-        return <path
-          className={edge.basis}
-          d={edgePath(source, target)}
-          key={edge.id}
-          markerEnd="url(#runtime-arrow)"
-        />;
+        const path = edgePath(source, target);
+        const active = highlight.edgeIds.has(edge.id);
+        return <g key={edge.id}>
+          <path
+            className={`${edge.basis} ${active ? "active" : ""}`}
+            d={path}
+            markerEnd="url(#runtime-arrow)"
+          />
+          {active && pulseEdgeIds.has(edge.id) && <circle
+            className="runtime-data-pulse"
+            key={`${activeObservation?.id}:${edge.id}`}
+            r={pulseRadius(activeBytes)}
+            opacity="0"
+          >
+            <animateMotion
+              path={path}
+              begin={pulseDelay(edge)}
+              dur="760ms"
+            />
+            <animate
+              attributeName="opacity"
+              values="0;1;1;0"
+              begin={pulseDelay(edge)}
+              dur="760ms"
+              fill="freeze"
+            />
+          </circle>}
+        </g>;
       })}
     </g>
     <g className="runtime-map-nodes">
       {positioned.map(({ node, x, y }) => <g
-        className={`${node.kind} ${node.lifecycle} ${node.id === selectedNodeId ? "selected" : ""}`}
+        className={`${node.kind} ${node.lifecycle} ${node.id === selectedNodeId ? "selected" : ""} ${highlight.nodeIds.has(node.id) ? "active" : ""}`}
         key={node.id}
         transform={`translate(${x} ${y})`}
         role="button"
@@ -218,40 +656,101 @@ function Lane({ x, width, label }: { x: number; width: number; label: string }) 
   </g>;
 }
 
-function RuntimeDossier({ graph, node }: { graph: RuntimeGraph; node: RuntimeGraphNode }) {
+function RuntimeDossier({
+  graph,
+  node,
+}: {
+  graph: RuntimeGraph;
+  node: RuntimeGraphNode;
+}) {
   const relationships = runtimeRelationships(graph, node.id);
-  const facts = Object.entries(node.facts).filter(([, value]) => value !== "");
+  const { primaryFacts, technicalFacts } = dossierFacts(node);
+  const interpretation = runtimeNodeInterpretation(node, relationships);
   return <aside className="runtime-dossier">
     <header>
-      <label className="section-label">EVIDENCE DOSSIER</label>
+      <label className="section-label">{dossierLabel(node)}</label>
       <span>{node.lifecycle}</span>
       <h2>{node.label}</h2>
       <code>{node.kind.replaceAll("_", " ")}</code>
     </header>
+    {interpretation && <section className="runtime-interpretation">
+      <label>{interpretation.label}</label>
+      <h3>{interpretation.title}</h3>
+      <p>{interpretation.summary}</p>
+    </section>}
     <section>
-      <h3>Observed facts</h3>
+      <h3>Key evidence</h3>
       <dl>
-        {facts.slice(0, 8).map(([key, value]) => <div key={key}>
+        {primaryFacts.map(([key, value]) => <div key={key}>
           <dt>{humanizeFact(key)}</dt>
           <dd>{String(value)}</dd>
         </div>)}
       </dl>
     </section>
     <section>
-      <h3>Relationships</h3>
+      <h3>Connected evidence</h3>
       <ul>
-        {relationships.slice(0, 10).map(({ edge, direction, peer }) => <li key={`${edge.id}:${direction}`}>
+        {relationships.slice(0, 5).map(({ edge, direction, peer }) => <li key={`${edge.id}:${direction}`}>
           <span>{runtimeRelationshipLabel(edge.kind, direction)}</span>
           <b>{peer.label}</b>
           <small>{edge.basis} · {edge.evidence.length} {edge.evidence.length === 1 ? "record" : "records"}</small>
         </li>)}
       </ul>
     </section>
+    {technicalFacts.length > 0 && <details className="runtime-technical-evidence">
+      <summary>Technical identifiers ({technicalFacts.length})</summary>
+      <dl>
+        {technicalFacts.map(([key, value]) => <div key={key}>
+          <dt>{humanizeFact(key)}</dt>
+          <dd>{String(value)}</dd>
+        </div>)}
+      </dl>
+    </details>}
     <footer>
-      <span>{node.evidence.length} source {node.evidence.length === 1 ? "record" : "records"}</span>
+      <span>{node.evidence.length} Argus {node.evidence.length === 1 ? "record" : "records"}</span>
       <span>{formatSeenRange(node)}</span>
     </footer>
   </aside>;
+}
+
+function dossierLabel(node: RuntimeGraphNode): string {
+  const labels: Record<RuntimeGraphNode["kind"], string> = {
+    host: "OBSERVED HOST",
+    container: "CONTAINER CONTEXT",
+    process_execution: "EXECUTION SUMMARY",
+    file: "TOUCHED FILE",
+    tcp_connection: "TCP FLOW",
+    tcp_endpoint: "NETWORK ENDPOINT",
+    network_interface: "WORKLOAD INTERFACE",
+  };
+  return labels[node.kind];
+}
+
+function dossierFacts(node: RuntimeGraphNode): {
+  primaryFacts: Array<[string, string | number | boolean]>;
+  technicalFacts: Array<[string, string | number | boolean]>;
+} {
+  const facts = Object.entries(node.facts)
+    .filter(([, value]) => value !== "") as Array<[string, string | number | boolean]>;
+  const priorities: Record<RuntimeGraphNode["kind"], string[]> = {
+    host: ["hostname", "osVersion"],
+    container: ["containerId"],
+    process_execution: ["executablePath", "commandLine", "processId", "userId"],
+    file: ["mode", "descriptorType"],
+    tcp_connection: ["state", "bytesIn", "bytesOut", "firstObservedAt", "closedAt"],
+    tcp_endpoint: ["address", "port"],
+    network_interface: ["name", "addresses", "mac"],
+  };
+  const primaryKeys = new Set(priorities[node.kind]);
+  const primaryFacts = priorities[node.kind]
+    .map((key) => facts.find(([candidate]) => candidate === key))
+    .filter((fact): fact is [string, string | number | boolean] => Boolean(fact))
+    .slice(0, 5);
+  return {
+    primaryFacts,
+    technicalFacts: facts.filter(([key]) =>
+      !primaryKeys.has(key) && !(node.kind === "file" && key === "path")),
+  };
 }
 
 function positionNodes(projection: RuntimeFocusProjection): PositionedNode[] {
@@ -268,9 +767,13 @@ function positionNodes(projection: RuntimeFocusProjection): PositionedNode[] {
   const canvasHeight = Math.max(310, maxRows * 64);
   return (Object.entries(groups) as Array<[keyof typeof groups, RuntimeGraphNode[]]>)
     .flatMap(([lane, nodes]) => {
-      const columnHeight = nodes.length * 64 - 12;
+      const stableNodes = [...nodes].sort((left, right) =>
+        left.kind.localeCompare(right.kind)
+        || left.label.localeCompare(right.label)
+        || left.id.localeCompare(right.id));
+      const columnHeight = stableNodes.length * 64 - 12;
       const startY = 58 + Math.max(0, (canvasHeight - columnHeight) / 2);
-      return nodes.map((node, index) => ({
+      return stableNodes.map((node, index) => ({
         node,
         x: laneX[lane],
         y: startY + index * 64,
@@ -317,6 +820,97 @@ function activityForProcess(
       left.observedAt.localeCompare(right.observedAt) || left.id.localeCompare(right.id));
 }
 
+function groupProcesses(processes: RuntimeGraphNode[]): RuntimeProcessGroup[] {
+  const groups = new Map<string, RuntimeProcessGroup>();
+  for (const process of processes) {
+    const key = process.label || "unknown process";
+    const current = groups.get(key);
+    if (current) {
+      current.executions.push(process);
+      current.records += process.evidence.length;
+    } else {
+      groups.set(key, {
+        label: key,
+        executions: [process],
+        records: process.evidence.length,
+      });
+    }
+  }
+  return [...groups.values()].sort((left, right) =>
+    right.records - left.records
+    || right.executions[0].lastSeenAt.localeCompare(left.executions[0].lastSeenAt)
+    || left.label.localeCompare(right.label));
+}
+
+function activityWindow(
+  groups: RuntimeActivityGroup[],
+  activeIndex: number,
+  limit: number,
+): Array<{ group: RuntimeActivityGroup; index: number }> {
+  const start = Math.min(
+    Math.max(0, activeIndex - limit + 2),
+    Math.max(0, groups.length - limit),
+  );
+  return groups.slice(start, start + limit)
+    .map((group, offset) => ({ group, index: start + offset }));
+}
+
+export function groupRuntimeActivity(
+  observations: RuntimeObservation[],
+): RuntimeActivityGroup[] {
+  const groups: RuntimeActivityGroup[] = [];
+  observations.forEach((observation, index) => {
+    const previous = groups.at(-1);
+    const sameBurst = previous
+      && previous.category === activityCategory(observation)
+      && Math.abs(
+        timestampMs(previous.observation.observedAt) - timestampMs(observation.observedAt),
+      ) <= 100;
+    if (!sameBurst) {
+      groups.push({
+        observation,
+        endIndex: index,
+        count: 1,
+        targets: 1,
+        category: activityCategory(observation),
+        kinds: new Set([observation.kind]),
+      });
+      return;
+    }
+    const targets = new Set(
+      observations
+        .slice(previous.endIndex - previous.count + 1, index + 1)
+        .map(activityTarget),
+    );
+    previous.observation = observation;
+    previous.endIndex = index;
+    previous.count += 1;
+    previous.targets = targets.size;
+    previous.kinds.add(observation.kind);
+  });
+  return groups;
+}
+
+function activityCategory(
+  observation: RuntimeObservation,
+): RuntimeActivityGroup["category"] {
+  if (observation.kind.startsWith("file_")) return "file";
+  if (observation.kind.startsWith("tcp_")) return "network";
+  if (observation.kind.startsWith("container_")) return "container";
+  return "process";
+}
+
+export function activityGroupLabel(group: RuntimeActivityGroup): string {
+  if (group.kinds.size === 1) return group.observation.kind.replaceAll("_", " ");
+  const labels: Record<RuntimeActivityGroup["category"], string> = {
+    container: "container lifecycle activity",
+    file: "filesystem activity",
+    network: "TCP connection activity",
+    process: "process lifecycle activity",
+  };
+  return labels[group.category];
+}
+
 function activityTarget(observation: RuntimeObservation): string {
   if (observation.fileDescriptor?.path) return observation.fileDescriptor.path;
   if (observation.connection) {
@@ -324,6 +918,14 @@ function activityTarget(observation: RuntimeObservation): string {
   }
   if (observation.container?.containerId) return truncate(observation.container.containerId, 24);
   return observation.process?.name ?? "execution";
+}
+
+function pulseRadius(bytes: number | undefined): number {
+  return Math.min(5, 2.75 + Math.log10(Math.max(1, bytes ?? 0)) * 0.4);
+}
+
+function pulseDelay(edge: RuntimeGraphEdge): string {
+  return edge.kind === "destination_endpoint" ? "0.18s" : "0s";
 }
 
 function formatWindow(start: string, end: string): string {
@@ -337,6 +939,14 @@ function formatOffset(start: string, value: string): string {
   const elapsed = Math.max(0, timestampMs(value) - timestampMs(start));
   if (elapsed < 1_000) return `+${Math.round(elapsed)}ms`;
   return `+${stripTrailingZero((elapsed / 1_000).toFixed(2))}s`;
+}
+
+function formatClock(value: string): string {
+  return new Date(timestampMs(value)).toISOString().slice(11, 19);
+}
+
+function formatDateTimeInput(value: string): string {
+  return new Date(timestampMs(value)).toISOString().slice(0, 19);
 }
 
 function formatSeenRange(node: RuntimeGraphNode): string {

@@ -1,11 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
-import { ClickHouseReadError, readArgusJsonLinesFromClickHouse } from "../src/runtime/clickhouse";
+import {
+  ClickHouseReadError,
+  readArgusBatchFromClickHouse,
+  readArgusJsonLinesFromClickHouse,
+} from "../src/runtime/clickhouse";
 
 describe("ClickHouse Argus reader", () => {
   it("preserves raw Body records and requests a bounded chronological window", async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(new Response([
-      '{"Body":"{\\"message_id\\":\\"older\\",\\"future_field\\":\\"preserved\\"}"}',
-      '{"Body":"{\\"message_id\\":\\"newer\\"}"}',
+      '{"CursorTimestamp":"2026-07-27 18:00:00.000000000","Body":"{\\"message_id\\":\\"older\\",\\"future_field\\":\\"preserved\\"}"}',
+      '{"CursorTimestamp":"2026-07-27 18:00:01.000000000","Body":"{\\"message_id\\":\\"newer\\"}"}',
       "",
     ].join("\n")));
 
@@ -25,11 +29,58 @@ describe("ClickHouse Argus reader", () => {
     expect(String(url)).toBe("http://127.0.0.1:8123/");
     expect(init?.body).toContain("FROM otel.otel_logs");
     expect(init?.body).toContain("ORDER BY Timestamp DESC");
-    expect(init?.body).toContain("LIMIT 250");
+    expect(init?.body).toContain("LIMIT 251");
     expect(init?.body).toContain("ORDER BY Timestamp ASC");
     expect(init?.headers).toMatchObject({
       authorization: `Basic ${Buffer.from("contour:secret").toString("base64")}`,
     });
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("pages earlier with an opaque cursor and keeps storage ordering out of callers", async () => {
+    const latestRequest = vi.fn<typeof fetch>().mockResolvedValue(new Response([
+      '{"CursorTimestamp":"2026-07-27 18:00:00.000000000","Body":"older"}',
+      '{"CursorTimestamp":"2026-07-27 18:00:01.000000000","Body":"newer"}',
+    ].join("\n")));
+    const latest = await readArgusBatchFromClickHouse({
+      endpoint: "http://127.0.0.1:8123",
+      database: "otel",
+      limit: 1,
+    }, undefined, latestRequest);
+
+    expect(latest.records).toBe("newer");
+    expect(latest.hasEarlier).toBe(true);
+    expect(latest.earlierCursor).toBeTruthy();
+
+    const historyRequest = vi.fn<typeof fetch>().mockResolvedValue(new Response(
+      '{"CursorTimestamp":"2026-07-27 17:59:59.000000000","Body":"earlier"}',
+    ));
+    await readArgusBatchFromClickHouse({
+      endpoint: "http://127.0.0.1:8123",
+      database: "otel",
+      limit: 1,
+    }, { cursor: latest.earlierCursor }, historyRequest);
+
+    const [url, init] = historyRequest.mock.calls[0];
+    expect(new URL(String(url)).searchParams.get("param_cursor_timestamp"))
+      .toBe("2026-07-27 18:00:01.000000000");
+    expect(init?.body).toContain("{cursor_timestamp:String}");
+    expect(init?.body).not.toContain("sipHash64");
+  });
+
+  it("accepts a validated timestamp boundary without exposing SQL interpolation", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(new Response(""));
+    await readArgusBatchFromClickHouse({
+      endpoint: "http://127.0.0.1:8123",
+      database: "otel",
+      limit: 100,
+    }, { before: "2026-07-27T18:00:00Z" }, request);
+
+    const [url, init] = request.mock.calls[0];
+    expect(new URL(String(url)).searchParams.get("param_before"))
+      .toBe("2026-07-27T18:00:00.000Z");
+    expect(init?.body).toContain("{before:String}");
+    expect(init?.body).not.toContain("2026-07-27T18:00:00");
   });
 
   it("reports backend failures without interpreting their payload", async () => {
