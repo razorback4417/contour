@@ -4,16 +4,22 @@ Contour is an evidence-backed topology explorer with two modes:
 
 - **Physical topology** collects Linux CPU, NUMA, PCIe, GPU, NIC, RDMA, and
   storage evidence.
-- **Runtime topology** consumes NVIDIA DOCA Argus events and reconstructs
-  process, container, file, TCP connection, endpoint, and interface
-  relationships over time.
+- **Runtime topology** normalizes supported NVIDIA DOCA Argus activity records
+  and reconstructs process, container, file, TCP connection, endpoint, and
+  interface relationships over time.
 
-Runtime mode reads the events exported by Argus from BlueField. Contour does
-not log in to or install anything on the monitored host.
+Runtime mode can replay JSONL captures or read bounded event windows from
+ClickHouse. Contour does not log in to or install anything on the monitored
+host. The bundled Argus workflow is synthetic; compatibility with production
+Argus output still requires validation against an authorized hardware capture.
 
 ![Contour I/O topology showing a selected NIC, its PCIe path, related RDMA device and interface, provenance, and verification command](.github/assets/contour-overview.png)
 
 *A sanitized accelerator fixture with one PCIe branch open. Contour reveals the relevant graph progressively, then connects a selected device to exact evidence and verification commands.*
+
+![Contour Argus runtime topology showing a Python process connected to its container, model file, TCP flow, local interface, and peer endpoint](.github/assets/contour-runtime-argus.png)
+
+*The bundled synthetic Argus replay. Contour reconstructs one process-centered software path, distinguishes observed from inferred relationships, and keeps the active evidence sequence visible below the graph.*
 
 ## Why Contour
 
