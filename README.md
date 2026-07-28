@@ -21,80 +21,63 @@ source label, versions, and normalization diagnostics.
 
 *The bundled synthetic Argus replay. Contour reconstructs one process-centered software path, distinguishes observed from inferred relationships, and keeps the active evidence sequence visible below the graph.*
 
-## Why Contour
+## What Contour helps answer
 
-`lstopo` is an excellent source of hardware topology, but its static whole-system output becomes difficult to investigate on dense machines. Contour keeps that evidence and changes how an engineer works with it.
+### Physical topology
 
-| Static whole-system diagram | Contour |
-| --- | --- |
-| Shows the complete hierarchy at once | Starts with I/O or CPU/NUMA questions and reveals one branch at a time |
-| Requires visual scanning for a device | Searches models, interfaces, RDMA names, and PCI BDFs |
-| Primarily presents containment | Correlates PCI devices, netdevs, RDMA ports, NUMA evidence, and known paths |
-| Produces a picture | Produces an evidence-backed route dossier with exact verification commands |
+- Where is a GPU, NIC, RDMA port, or storage device attached?
+- Which PCIe and NUMA relationships are directly supported by host evidence?
+- What exact command can another engineer run to verify the path?
 
-For runtime investigation, Argus supplies individual activity records. Contour
-normalizes those records, correlates them into stable executions and
-relationships, and keeps each conclusion linked to its source evidence.
+Contour correlates `lstopo`, sysfs, `ip`, RDMA, and optional vendor evidence
+without presenting topology as proof of congestion or root cause.
 
-### Why it matters
+### Runtime evidence
 
-- Reduces the time spent correlating `lstopo`, sysfs, `ip`, and `rdma` output during bring-up or incident investigation.
-- Makes shared PCIe paths and NUMA placement visible without claiming that topology alone proves congestion.
-- Gives engineers an inspectable snapshot they can hand to another person and reproduce offline.
-- Turns missing data into an explicit collector result instead of silently treating “unknown” as “not present.”
+- Which process execution touched a file or owned a TCP connection?
+- What container and Linux namespace context did Argus observe?
+- How did the evidence-backed software graph change during the selected window?
 
-### How it is built
+Contour turns separate Argus records into stable executions and relationships.
+Each relationship remains linked to its source record and labeled as observed
+or inferred.
 
-- Replaceable Linux collectors gather raw observations from hwloc, sysfs, iproute2, and optional RDMA tooling.
-- Normalization produces one versioned canonical topology schema; the UI never parses command-specific output.
-- Stable physical identities, typed relationships, diagnostics, and per-fact provenance make every displayed claim traceable.
-- Deterministic projection, hierarchy layout, and SVG rendering produce the same result from the same normalized snapshot.
-- The runtime adapter and temporal reducer keep Argus parsing, entity identity,
-  correlation, and UI presentation separate.
+Both workspaces preserve unknown information instead of treating it as absent.
+The same normalized input always produces the same graph, so an investigation
+can be exported, replayed, and handed to another engineer.
 
-## Quick start on Linux
+## Try Contour
 
-Requirements: Node.js 22 or newer and `lstopo` from hwloc. `ethtool`, `rdma`, `devlink`, `nvidia-smi`, and `mlxlink` are optional evidence sources; missing tools do not prevent collection.
+Requirements for both workspaces: Node.js 22 or newer.
 
 ```bash
-sudo apt install hwloc
 git clone https://github.com/razorback4417/contour.git
 cd contour
 npm install
 npm link
+```
+
+### Replay the bundled Argus example
+
+This works on Linux, macOS, and Windows:
+
+```bash
+contour runtime fixtures/argus/process-network-sequence.jsonl
+```
+
+### Inspect physical topology on Linux
+
+```bash
+sudo apt install hwloc
 contour
 ```
 
-Contour binds to `http://127.0.0.1:4177` and opens a browser when one is available. Press `Ctrl+C` to stop it. Run `contour doctor` if collection does not start.
+`ethtool`, `rdma`, `devlink`, `nvidia-smi`, and `mlxlink` are optional evidence
+sources. Missing optional tools do not prevent collection. For a Linux target
+reached from another machine, see [Remote Linux collection](docs/REMOTE-LINUX.md).
 
-## Mac to a remote Linux machine
-
-Live collection runs on Linux. If the target can access GitHub, SSH to it and use the Linux quick start above.
-
-If you need to clone on your Mac and copy the source to the target:
-
-```bash
-# On the Mac
-git clone https://github.com/razorback4417/contour.git
-rsync -az --exclude .git --exclude node_modules --exclude dist --exclude dist-cli contour/ user@host:~/contour/
-
-# On the Linux target
-ssh user@host
-cd ~/contour
-npm install
-npm link
-contour
-```
-
-Contour prints the exact tunnel command. Keep Contour running, then use a second Mac terminal:
-
-```bash
-ssh -N -L 4177:127.0.0.1:4177 user@host
-```
-
-Open `http://127.0.0.1:4177` on the Mac. The UI remains bound to the Linux machine's loopback interface and is not exposed to the network.
-
-For later source updates, rerun the same `rsync` command and `npm install` on Linux. Build on Linux; do not copy `node_modules`, `dist`, or `dist-cli` from the Mac.
+Contour binds to `http://127.0.0.1:4177` and opens a browser when available.
+Press `Ctrl+C` to stop it. Run `contour doctor` if collection does not start.
 
 ## Commands
 
@@ -126,8 +109,13 @@ contour topology.xml
 - Search by model, device class, interface, RDMA name, or PCI BDF.
 - Choose endpoint A and endpoint B to highlight their known containment path.
 - Inspect the path dossier for hop-by-hop identity, explicit NUMA evidence, scoped findings, uncertainty, and verification commands.
-- Use the mode-aware import guide to distinguish saved topology or runtime evidence from live collection.
 - Export the canonical snapshot or current deterministic SVG from the browser.
+
+Edges represent observed or derived physical facts. When sources provide it,
+the inspector shows PCIe negotiated/capable width and speed, Ethernet link/FEC
+state, RDMA counters, driver health, and optional NVIDIA evidence. Counters and
+topology do not by themselves prove congestion; unknown information remains
+distinct from absent information.
 
 ### Runtime evidence
 
@@ -151,23 +139,23 @@ Replay can be paused or restarted, and exported runtime JSON can be reopened
 offline. The compatibility panel reports observed Argus versions and
 normalization diagnostics for the current window.
 
-For the receiver deployment, run Contour where ClickHouse is reachable directly
-or through a tunnel to the storage environment. This does not require SSH
-access to the monitored workload:
+To read real events already stored in the receiver's ClickHouse instance, run
+Contour on that machine or through a tunnel:
 
 ```bash
-cd deploy/argus-observability
-set -a && . ./.env && set +a
+set -a && . deploy/argus-observability/.env && set +a
 contour runtime --clickhouse
 ```
+
+See the [Argus receiver guide](deploy/argus-observability/README.md) for initial
+OTLP, ClickHouse, and sender setup. Contour does not require SSH access to the
+monitored workload.
 
 `CLICKHOUSE_URL` defaults to `http://127.0.0.1:8123`; the database defaults to
 `otel`. The live reader refreshes the latest 500 stored bodies every two
 seconds, restores chronological order, and passes the raw JSON records to the
 same Argus normalizer as JSONL replay. The focused flow animates only
 relationships backed by the active observation; it does not simulate packets.
-
-Edges represent observed or inferred topology facts. When sources provide it, the inspector shows PCIe negotiated/capable width and speed, Ethernet link/FEC state, RDMA counters, driver health, and optional NVIDIA evidence. Counters and topology do not by themselves prove congestion; unknown information remains distinct from absent information.
 
 ## Development
 
@@ -190,7 +178,9 @@ Documentation is split by ownership:
 
 - [`docs/SCHEMA.md`](docs/SCHEMA.md): physical topology schema;
 - [`docs/COLLECTORS.md`](docs/COLLECTORS.md): physical Linux evidence sources;
+- [`docs/REMOTE-LINUX.md`](docs/REMOTE-LINUX.md): run collection on a remote Linux target;
 - [`docs/RUNTIME.md`](docs/RUNTIME.md): Argus normalization, replay, and runtime boundaries.
+- [`deploy/argus-observability/README.md`](deploy/argus-observability/README.md): OTLP and ClickHouse receiver setup.
 
 ## Current limits
 
@@ -200,7 +190,7 @@ checks over one snapshot, not proof of congestion or failure. Direct NVML,
 NVMe subsystem enrichment, physical link counter deltas, and fabric-wide
 topology remain planned.
 
-Runtime topology is limited to the events Argus exports in the selected window.
+Runtime evidence is limited to the events Argus exports in the selected window.
 It can reconstruct software communication paths, but not switch hops, VLANs,
 routing intent, DNS names, or Kubernetes service identity. Those require
 separate remote evidence sources. Replay animation shows evidence progression,

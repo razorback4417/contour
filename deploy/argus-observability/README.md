@@ -7,8 +7,8 @@ Argus -> Fluent Bit -> OTLP/HTTP Collector -> ClickHouse -> Contour
 ```
 
 The collector owns OTLP ingress, batching, and retries. ClickHouse owns the
-durable event window. Contour will read records after a real Argus payload
-establishes the adapter contract.
+durable event window. Contour reads each stored `Body` through the Argus adapter
+and reports observed product/schema versions and normalization diagnostics.
 
 ## Receiver setup
 
