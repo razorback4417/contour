@@ -1,0 +1,21 @@
+[Unit]
+Description=Contour live Argus runtime explorer
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/contour-live/current
+EnvironmentFile=%h/contour/deploy/argus-observability/.env
+Environment=NODE_OPTIONS=--max-old-space-size=384
+ExecStart=/usr/bin/node %h/contour-live/current/dist-cli/cli.js runtime --clickhouse --limit 250 --host 127.0.0.1 --port 4178 --no-open
+Restart=on-failure
+RestartSec=5
+MemoryMax=512M
+CPUQuota=50%
+Nice=10
+NoNewPrivileges=true
+UMask=0077
+
+[Install]
+WantedBy=default.target

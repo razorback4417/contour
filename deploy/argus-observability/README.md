@@ -38,7 +38,8 @@ http://<OTLP_BIND_ADDRESS>:4318/v1/logs
 
 ## Fluent Bit handoff
 
-Patrick owns the Argus-to-Fluent-Bit record mapping. This is the minimal output:
+The sender-side Argus-to-Fluent-Bit configuration owns the record mapping.
+This is the minimal output:
 
 ```ini
 [OUTPUT]
@@ -67,3 +68,36 @@ docker compose exec clickhouse sh -lc \
 
 The exporter creates `otel.otel_logs` and applies a 72-hour TTL. Stop the
 services without deleting captured data with `docker compose stop`.
+
+## Live Contour service
+
+The supplied user service keeps the UI loopback-only, reads a bounded
+250-record window, caps the Node.js process at 512 MiB and half a CPU, and does
+not restart or modify the collector or ClickHouse:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp deploy/argus-observability/contour-runtime.service \
+  ~/.config/systemd/user/contour-runtime.service
+systemctl --user daemon-reload
+systemctl --user enable --now contour-runtime.service
+```
+
+The deployed build is expected at `~/contour-live/current`, with the receiver
+environment at `~/contour/deploy/argus-observability/.env`. Inspect the service
+without exposing it to the network:
+
+```bash
+systemctl --user status contour-runtime.service
+curl --fail http://127.0.0.1:4178/
+```
+
+From a workstation, tunnel the loopback listener and open
+`http://127.0.0.1:4178`:
+
+```bash
+ssh -N -L 4178:127.0.0.1:4178 <user>@<receiver-host>
+```
+
+See [`../../docs/ARGUS-DEMO.md`](../../docs/ARGUS-DEMO.md) for the demo path and
+claim boundaries.

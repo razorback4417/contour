@@ -8,8 +8,8 @@ import {
 describe("ClickHouse Argus reader", () => {
   it("preserves raw Body records and requests a bounded chronological window", async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(new Response([
-      '{"CursorTimestamp":"2026-07-27 18:00:00.000000000","Body":"{\\"message_id\\":\\"older\\",\\"future_field\\":\\"preserved\\"}"}',
-      '{"CursorTimestamp":"2026-07-27 18:00:01.000000000","Body":"{\\"message_id\\":\\"newer\\"}"}',
+      '{"CursorTimestamp":"2026-07-27 18:00:00.000000000","ReceivedAt":"2026-07-27T18:00:00.000000000Z","Body":"{\\"message_id\\":\\"older\\",\\"future_field\\":\\"preserved\\"}"}',
+      '{"CursorTimestamp":"2026-07-27 18:00:01.000000000","ReceivedAt":"2026-07-27T18:00:01.000000000Z","Body":"{\\"message_id\\":\\"newer\\"}"}',
       "",
     ].join("\n")));
 
@@ -31,6 +31,7 @@ describe("ClickHouse Argus reader", () => {
     expect(init?.body).toContain("ORDER BY Timestamp DESC");
     expect(init?.body).toContain("LIMIT 251");
     expect(init?.body).toContain("ORDER BY Timestamp ASC");
+    expect(init?.body).toContain("ReceivedAt");
     expect(init?.headers).toMatchObject({
       authorization: `Basic ${Buffer.from("contour:secret").toString("base64")}`,
     });
@@ -39,8 +40,8 @@ describe("ClickHouse Argus reader", () => {
 
   it("pages earlier with an opaque cursor and keeps storage ordering out of callers", async () => {
     const latestRequest = vi.fn<typeof fetch>().mockResolvedValue(new Response([
-      '{"CursorTimestamp":"2026-07-27 18:00:00.000000000","Body":"older"}',
-      '{"CursorTimestamp":"2026-07-27 18:00:01.000000000","Body":"newer"}',
+      '{"CursorTimestamp":"2026-07-27 18:00:00.000000000","ReceivedAt":"2026-07-27T18:00:00.000000000Z","Body":"older"}',
+      '{"CursorTimestamp":"2026-07-27 18:00:01.000000000","ReceivedAt":"2026-07-27T18:00:01.000000000Z","Body":"newer"}',
     ].join("\n")));
     const latest = await readArgusBatchFromClickHouse({
       endpoint: "http://127.0.0.1:8123",
@@ -48,12 +49,15 @@ describe("ClickHouse Argus reader", () => {
       limit: 1,
     }, undefined, latestRequest);
 
-    expect(latest.records).toBe("newer");
+    expect(latest.records).toEqual([{
+      body: "newer",
+      receivedAt: "2026-07-27T18:00:01.000000000Z",
+    }]);
     expect(latest.hasEarlier).toBe(true);
     expect(latest.earlierCursor).toBeTruthy();
 
     const historyRequest = vi.fn<typeof fetch>().mockResolvedValue(new Response(
-      '{"CursorTimestamp":"2026-07-27 17:59:59.000000000","Body":"earlier"}',
+      '{"CursorTimestamp":"2026-07-27 17:59:59.000000000","ReceivedAt":"2026-07-27T17:59:59.000000000Z","Body":"earlier"}',
     ));
     await readArgusBatchFromClickHouse({
       endpoint: "http://127.0.0.1:8123",

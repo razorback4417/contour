@@ -137,7 +137,9 @@ windows, UTC jumps, and a searchable evidence ledger. Search follows connected
 evidence, so a container ID, touched path, or endpoint can locate its process.
 Replay can be paused or restarted, and exported runtime JSON can be reopened
 offline. The compatibility panel reports observed Argus versions and
-normalization diagnostics for the current window.
+normalization diagnostics for the current window. If an Argus record uses its
+Unix-epoch timestamp sentinel, live ClickHouse mode can retain the observation
+using the transport receipt time and labels that fallback explicitly.
 
 To read real events already stored in the receiver's ClickHouse instance, run
 Contour on that machine or through a tunnel:
@@ -180,6 +182,7 @@ Documentation is split by ownership:
 - [`docs/COLLECTORS.md`](docs/COLLECTORS.md): physical Linux evidence sources;
 - [`docs/REMOTE-LINUX.md`](docs/REMOTE-LINUX.md): run collection on a remote Linux target;
 - [`docs/RUNTIME.md`](docs/RUNTIME.md): Argus normalization, replay, and runtime boundaries.
+- [`docs/ARGUS-DEMO.md`](docs/ARGUS-DEMO.md): live access, five-minute demo path, and accurate claims.
 - [`deploy/argus-observability/README.md`](deploy/argus-observability/README.md): OTLP and ClickHouse receiver setup.
 
 ## Current limits
