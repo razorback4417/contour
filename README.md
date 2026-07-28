@@ -149,6 +149,10 @@ set -a && . deploy/argus-observability/.env && set +a
 contour runtime --clickhouse
 ```
 
+`CONTOUR_ARGUS_HOST_ID` selects one exact Argus workload host from each bounded
+ClickHouse window. Contour rejects mixed-host input rather than merging
+activity from separate machines into one graph.
+
 See the [Argus receiver guide](deploy/argus-observability/README.md) for initial
 OTLP, ClickHouse, and sender setup. Contour does not require SSH access to the
 monitored workload.

@@ -66,6 +66,56 @@ describe("Argus runtime adapter", () => {
     expect(capture.observations[0].source.synthetic).toBe(false);
   });
 
+  it("rejects mixed host identities instead of merging them into one graph", () => {
+    const record = (hostId: string, processId: number) => JSON.stringify({
+      message_id: `process-${hostId}`,
+      occurred_message_time_iso_8601_ns: "2026-07-27T18:00:00Z",
+      workload_information: { unique_identifier: hostId },
+      activity_data: {
+        name: "process_created",
+        process_details: {
+          process_id: processId,
+          process_name: "worker",
+          process_creation_time_iso_8601_ns: "2026-07-27T18:00:00Z",
+        },
+      },
+    });
+
+    expect(() => normalizeArgusJsonLines([
+      record("host-a", 1),
+      record("host-b", 2),
+    ].join("\n"), { synthetic: false })).toThrow(
+      "Multiple Argus host identities require an explicit selection: host-a, host-b",
+    );
+  });
+
+  it("normalizes only the explicitly selected host", () => {
+    const record = (hostId: string, processId: number) => JSON.stringify({
+      message_id: `process-${hostId}`,
+      occurred_message_time_iso_8601_ns: "2026-07-27T18:00:00Z",
+      workload_information: { unique_identifier: hostId },
+      activity_data: {
+        name: "process_created",
+        process_details: {
+          process_id: processId,
+          process_name: "worker",
+          process_creation_time_iso_8601_ns: "2026-07-27T18:00:00Z",
+        },
+      },
+    });
+
+    const capture = normalizeArgusJsonLines([
+      record("host-a", 1),
+      record("host-b", 2),
+    ].join("\n"), {
+      synthetic: false,
+      hostId: "host-b",
+    });
+
+    expect(capture.host.id).toBe("host-b");
+    expect(capture.observations.map((item) => item.id)).toEqual(["process-host-b"]);
+  });
+
   it("normalizes the observed snake-case transport and merged detail objects", () => {
     const input = JSON.stringify({
       product_name: "DOCA_ARGUS",

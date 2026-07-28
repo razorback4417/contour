@@ -66,13 +66,44 @@ describe("live runtime capture loader", () => {
     });
     expect(result.capture.observations[0].source.rawRecord).toBe(body);
   });
+
+  it("keeps only the selected host from a mixed bounded storage window", async () => {
+    const readRecords = vi.fn().mockResolvedValue({
+      records: [
+        {
+          body: record("host-a-process", "2026-07-27T18:00:00Z", "host-a"),
+          receivedAt: "2026-07-27T18:00:00.100000000Z",
+        },
+        {
+          body: record("host-b-process", "2026-07-27T18:00:01Z", "host-b"),
+          receivedAt: "2026-07-27T18:00:01.100000000Z",
+        },
+      ],
+      hasEarlier: false,
+    });
+    const load = createClickHouseRuntimeLoader({
+      endpoint: "http://clickhouse.test",
+      database: "otel",
+      limit: 250,
+    }, {
+      synthetic: false,
+      source: "clickhouse:otel.otel_logs",
+      hostId: "host-b",
+    }, readRecords);
+
+    const result = await load();
+
+    expect(result.capture.host.id).toBe("host-b");
+    expect(result.capture.observations.map((item) => item.id))
+      .toEqual(["host-b-process"]);
+  });
 });
 
-function record(id: string, observedAt: string): string {
+function record(id: string, observedAt: string, hostId = "host"): string {
   return JSON.stringify({
     message_id: id,
     occurred_message_time_iso_8601_ns: observedAt,
-    workload_information: { unique_identifier: "host" },
+    workload_information: { unique_identifier: hostId },
     activity_data: {
       name: "process_created",
       process_details: {

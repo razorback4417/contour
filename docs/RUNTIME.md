@@ -15,6 +15,15 @@ separate; any future correlation must use explicit host or interface evidence.
 - The temporal reducer owns entity identity, lifecycle state, and graph edges.
 - The UI consumes normalized captures and never parses Argus fields.
 
+```mermaid
+flowchart LR
+    Argus --> OTLP[OTLP collector] --> ClickHouse
+    ClickHouse -->|raw Body + receipt time| Reader
+    JSONL[Argus JSONL] --> Adapter[Argus adapter]
+    Reader --> Adapter --> Capture[Runtime capture]
+    Capture --> Reducer[Temporal graph reducer] --> UI
+```
+
 Adapters preserve each raw record and identify synthetic input explicitly.
 Unknown external fields may pass through the raw record without changing this
 contract. Unsupported records become diagnostics rather than partially
@@ -25,6 +34,10 @@ invented observations.
 A runtime capture contains one host identity, a bounded time interval,
 normalized observations, and diagnostics. It is an event history, not a claim
 that every activity on the machine was observed.
+
+Mixed-host input is rejected unless the caller selects an exact Argus host
+identity. Live ClickHouse mode reads a bounded storage window first, then the
+Argus adapter keeps only records with that exact identity before normalization.
 
 Process identity uses the host boot, PID, process creation time, and Argus
 self-exec identifier when available. PID alone is never a stable process

@@ -13,11 +13,19 @@ import { RUNTIME_CAPTURE_SCHEMA_VERSION } from "./types";
 export interface ArgusNormalizeOptions {
   synthetic: boolean;
   source?: string;
+  hostId?: string;
 }
 
 export interface ArgusInputRecord {
   rawRecord: string;
   receivedAt?: string;
+}
+
+export class ArgusHostSelectionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ArgusHostSelectionError";
+  }
 }
 
 const activityKinds: Record<string, RuntimeObservationKind> = {
@@ -48,11 +56,13 @@ export function normalizeArgusRecords(
   input: ArgusInputRecord[],
   options: ArgusNormalizeOptions,
 ): RuntimeCapture {
+  const selection = selectHostRecords(input, options.hostId);
+  const selectedInput = selection.records;
   const observations: RuntimeObservation[] = [];
   const diagnostics: RuntimeDiagnostic[] = [];
   let host: RuntimeCapture["host"] | undefined;
 
-  input.forEach(({ rawRecord, receivedAt }, index) => {
+  selectedInput.forEach(({ rawRecord, receivedAt }, index) => {
     if (!rawRecord.trim()) return;
     const source = options.source ?? `argus:record:${index + 1}`;
     let record: Record<string, unknown>;
@@ -72,7 +82,9 @@ export function normalizeArgusRecords(
     const workload = object(record.workload_information);
     const networkInterfaces = normalizeNetworkInterfaces(workload);
     host ??= {
-      id: string(workload, "unique_identifier") ?? `argus-host:${stableId("unknown", options.source ?? "capture")}`,
+      id: string(workload, "unique_identifier")
+        ?? selection.hostId
+        ?? `argus-host:${stableId("unknown", options.source ?? "capture")}`,
       hostname: string(workload, "hostname"),
       bootId: string(workload, "boot_uuid"),
       osVersion: string(workload, "os_version"),
@@ -163,7 +175,7 @@ export function normalizeArgusRecords(
 
   const times = observations.map((item) => item.observedAt).sort();
   const fallbackTime = "1970-01-01T00:00:00Z";
-  const captureMaterial = input
+  const captureMaterial = selectedInput
     .map(({ rawRecord, receivedAt }) => `${receivedAt ?? ""}\0${rawRecord}`)
     .join("\n");
   return {
@@ -175,6 +187,50 @@ export function normalizeArgusRecords(
     observations,
     diagnostics,
   };
+}
+
+function selectHostRecords(
+  input: ArgusInputRecord[],
+  requestedHostId: string | undefined,
+): { records: ArgusInputRecord[]; hostId?: string } {
+  const identified = input.map((item) => ({
+    item,
+    hostId: argusHostId(item.rawRecord),
+  }));
+  const hostIds = [...new Set(identified
+    .map(({ hostId }) => hostId)
+    .filter((hostId): hostId is string => hostId !== undefined))]
+    .sort();
+
+  if (requestedHostId !== undefined) {
+    const selected = identified
+      .filter(({ hostId }) => hostId === requestedHostId)
+      .map(({ item }) => item);
+    if (selected.length === 0) {
+      throw new ArgusHostSelectionError(
+        `No Argus records found for host identity: ${requestedHostId}`,
+      );
+    }
+    return { records: selected, hostId: requestedHostId };
+  }
+
+  if (hostIds.length > 1) {
+    throw new ArgusHostSelectionError(
+      `Multiple Argus host identities require an explicit selection: ${hostIds.join(", ")}`,
+    );
+  }
+  return { records: input, hostId: hostIds[0] };
+}
+
+function argusHostId(rawRecord: string): string | undefined {
+  try {
+    const parsed: unknown = JSON.parse(rawRecord);
+    if (!isRecord(parsed)) return undefined;
+    const record = unwrapHeader(parsed);
+    return string(object(record.workload_information), "unique_identifier");
+  } catch {
+    return undefined;
+  }
 }
 
 function unwrapHeader(record: Record<string, unknown>): Record<string, unknown> {

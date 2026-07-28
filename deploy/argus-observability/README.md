@@ -19,8 +19,9 @@ cd deploy/argus-observability
 cp .env.example .env
 ```
 
-Set `OTLP_BIND_ADDRESS` in `.env` to the receiver's internal address and replace
-the ClickHouse password:
+Set `OTLP_BIND_ADDRESS` in `.env` to the receiver's internal address, replace
+the ClickHouse password, and set `CONTOUR_ARGUS_HOST_ID` to the exact
+`workload_information.unique_identifier` of the host Contour should display:
 
 ```sh
 chmod 600 .env
@@ -72,8 +73,9 @@ services without deleting captured data with `docker compose stop`.
 ## Live Contour service
 
 The supplied user service keeps the UI loopback-only, reads a bounded
-250-record window, caps the Node.js process at 512 MiB and half a CPU, and does
-not restart or modify the collector or ClickHouse:
+250-record storage window, selects `CONTOUR_ARGUS_HOST_ID` from that window,
+caps the Node.js process at 512 MiB and half a CPU, and does not restart or
+modify the collector or ClickHouse:
 
 ```bash
 mkdir -p ~/.config/systemd/user

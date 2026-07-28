@@ -8,7 +8,7 @@ Type=simple
 WorkingDirectory=%h/contour-live/current
 EnvironmentFile=%h/contour/deploy/argus-observability/.env
 Environment=NODE_OPTIONS=--max-old-space-size=384
-ExecStart=/usr/bin/node %h/contour-live/current/dist-cli/cli.js runtime --clickhouse --limit 250 --host 127.0.0.1 --port 4178 --no-open
+ExecStart=/usr/bin/node %h/contour-live/current/dist-cli/cli.js runtime --clickhouse --argus-host-id ${CONTOUR_ARGUS_HOST_ID} --limit 250 --host 127.0.0.1 --port 4178 --no-open
 Restart=on-failure
 RestartSec=5
 MemoryMax=512M

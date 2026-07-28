@@ -82,6 +82,8 @@ async function runtimeCommand(args: string[]): Promise<void> {
     throw new CliError("Usage: contour runtime <argus.jsonl> | contour runtime --clickhouse [--limit 500]", 2);
   }
   const database = process.env.CLICKHOUSE_DATABASE ?? "otel";
+  const argusHostId = optionValue(args, "--argus-host-id")
+    ?? process.env.CONTOUR_ARGUS_HOST_ID;
   const source = clickhouse ? `clickhouse:${database}.otel_logs` : input;
   const loadClickHouseCapture = clickhouse ? createClickHouseRuntimeLoader({
     endpoint: process.env.CLICKHOUSE_URL ?? "http://127.0.0.1:8123",
@@ -92,18 +94,23 @@ async function runtimeCommand(args: string[]): Promise<void> {
   }, {
     synthetic: false,
     source,
+    hostId: argusHostId,
   }) : undefined;
   const loadFileCapture = async () =>
     normalizeArgusJsonLines(await readFile(input, "utf8"), {
       synthetic: false,
       source,
+      hostId: argusHostId,
     });
   const initialBatch = loadClickHouseCapture ? await loadClickHouseCapture() : undefined;
   const capture = initialBatch?.capture ?? await loadFileCapture();
   if (capture.observations.length === 0) {
     throw new CliError(`No supported Argus observations found in ${source}.`, 1);
   }
-  const options = parseServeOptions(args, new Set(["--clickhouse", "--limit"]));
+  const options = parseServeOptions(
+    args,
+    new Set(["--clickhouse", "--limit", "--argus-host-id"]),
+  );
   if (clickhouse) {
     await servePayloadProvider(
       async (url) => {
@@ -226,7 +233,14 @@ function integerOption(args: string[], name: string, fallback: number): number {
   return value;
 }
 
-const valueOptions = new Set(["--host", "--port", "--output", "-o", "--limit"]);
+const valueOptions = new Set([
+  "--host",
+  "--port",
+  "--output",
+  "-o",
+  "--limit",
+  "--argus-host-id",
+]);
 
 function optionValue(args: string[], ...names: string[]): string | undefined {
   for (const name of names) {
@@ -295,6 +309,7 @@ Options:
   --no-open                  Print the URL without opening a browser
   --port <port>              Override the local port (default: 4177)
   --host <address>           Override the bind address (default: 127.0.0.1)
+  --argus-host-id <id>       Select one Argus workload host in runtime mode
 
 Snapshots and SVG are exported from the UI. Run contour advanced for scripting and debugging commands.`);
 }
@@ -305,7 +320,8 @@ function printAdvancedHelp(): void {
   contour collect [-o snapshot.json]       Collect canonical JSON without the UI
   contour serve <snapshot> [options]        Explicit offline server form
   contour runtime <argus.jsonl> [options]    Normalize and replay Argus activities
-  contour runtime --clickhouse [--limit n]   Read Argus bodies from ClickHouse
+  contour runtime --clickhouse [--argus-host-id id] [--limit n]
+                                              Read one Argus host from ClickHouse
   contour normalize <topology.xml>          Canonical JSON on stdout
   contour svg <topology.xml>                Deterministic SVG on stdout
 
