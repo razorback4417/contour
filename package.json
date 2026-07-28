@@ -26,6 +26,7 @@
     "build": "tsc -b && vite build && npm run build:cli",
     "build:cli": "tsup src/cli.ts --format esm --platform node --out-dir dist-cli --clean",
     "prepare": "npm run build",
+    "check": "npm run typecheck && npm test && npm run build",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
     "test:watch": "vitest",

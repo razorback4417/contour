@@ -10,6 +10,7 @@ describe("clean CLI invocation", () => {
 
   it("keeps advanced automation commands explicit", () => {
     expect(resolveInvocation(["collect", "-o", "host.json"])).toEqual({ command: "collect", args: ["-o", "host.json"] });
+    expect(resolveInvocation(["runtime", "argus.jsonl"])).toEqual({ command: "runtime", args: ["argus.jsonl"] });
     expect(resolveInvocation(["--help"])).toEqual({ command: "help", args: [] });
     expect(resolveInvocation(["doctor"])).toEqual({ command: "doctor", args: [] });
   });

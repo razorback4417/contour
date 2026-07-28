@@ -1,0 +1,53 @@
+name: contour-argus
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.3
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DATABASE:-otel}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USERNAME:-contour}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?set CLICKHOUSE_PASSWORD in .env}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports:
+      - "127.0.0.1:8123:8123"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "clickhouse-client --user \"$$CLICKHOUSE_USER\" --password \"$$CLICKHOUSE_PASSWORD\" --query 'SELECT 1'",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 2g
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.153.0
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    environment:
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-otel}
+      CLICKHOUSE_USERNAME: ${CLICKHOUSE_USERNAME:-contour}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?set CLICKHOUSE_PASSWORD in .env}
+    ports:
+      - "${OTLP_BIND_ADDRESS:-127.0.0.1}:4318:4318"
+      - "127.0.0.1:13133:13133"
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  clickhouse-data:

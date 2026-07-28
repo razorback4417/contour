@@ -14,6 +14,9 @@ import { layoutTopology } from "./layout/hierarchy";
 import { renderTopologySvg } from "./render/svg";
 import { stableStringify } from "./model/stable";
 import type { TopologySnapshot } from "./model/types";
+import { normalizeArgusJsonLines } from "./runtime/argus";
+import { createClickHouseRuntimeLoader } from "./runtime/live";
+import { runtimeBrowserWindow } from "./runtime/transport";
 import { resolveInvocation } from "./cli/invocation";
 import { formatDoctorReport, inspectEnvironment } from "./cli/doctor";
 import { detectSshSession, formatServerReady, formatSnapshotSummary, sshTarget } from "./cli/presentation";
@@ -27,6 +30,7 @@ async function main(): Promise<void> {
       case "collect": await collectCommand(args); break;
       case "serve": await serveCommand(args); break;
       case "explore": await exploreCommand(args); break;
+      case "runtime": await runtimeCommand(args); break;
       case "normalize": await transformCommand("normalize", args); break;
       case "svg": await transformCommand("svg", args); break;
       case "doctor": await doctorCommand(args); break;
@@ -71,6 +75,62 @@ async function exploreCommand(args: string[]): Promise<void> {
   await serveSnapshot(snapshot, parseServeOptions(args));
 }
 
+async function runtimeCommand(args: string[]): Promise<void> {
+  const clickhouse = args.includes("--clickhouse");
+  const input = positional(args)[0];
+  if ((!clickhouse && !input) || (clickhouse && input)) {
+    throw new CliError("Usage: contour runtime <argus.jsonl> | contour runtime --clickhouse [--limit 500]", 2);
+  }
+  const database = process.env.CLICKHOUSE_DATABASE ?? "otel";
+  const source = clickhouse ? `clickhouse:${database}.otel_logs` : input;
+  const loadClickHouseCapture = clickhouse ? createClickHouseRuntimeLoader({
+    endpoint: process.env.CLICKHOUSE_URL ?? "http://127.0.0.1:8123",
+    database,
+    username: process.env.CLICKHOUSE_USERNAME,
+    password: process.env.CLICKHOUSE_PASSWORD,
+    limit: integerOption(args, "--limit", 500),
+  }, {
+    synthetic: false,
+    source,
+  }) : undefined;
+  const loadFileCapture = async () =>
+    normalizeArgusJsonLines(await readFile(input, "utf8"), {
+      synthetic: false,
+      source,
+    });
+  const initialBatch = loadClickHouseCapture ? await loadClickHouseCapture() : undefined;
+  const capture = initialBatch?.capture ?? await loadFileCapture();
+  if (capture.observations.length === 0) {
+    throw new CliError(`No supported Argus observations found in ${source}.`, 1);
+  }
+  const options = parseServeOptions(args, new Set(["--clickhouse", "--limit"]));
+  if (clickhouse) {
+    await servePayloadProvider(
+      async (url) => {
+        const cursor = url.searchParams.get("cursor") ?? undefined;
+        const before = url.searchParams.get("before") ?? undefined;
+        const batch = await loadClickHouseCapture!({ cursor, before });
+        return `${stableStringify(runtimeBrowserWindow(batch.capture, {
+          earlierCursor: batch.earlierCursor,
+          hasEarlier: batch.hasEarlier,
+          live: cursor === undefined && before === undefined,
+        }))}\n`;
+      },
+      `${stableStringify(runtimeBrowserWindow(capture, {
+        earlierCursor: initialBatch?.earlierCursor,
+        hasEarlier: initialBatch?.hasEarlier ?? false,
+        live: true,
+      }))}\n`,
+      options,
+    );
+  } else {
+    await servePayload(`${stableStringify(runtimeBrowserWindow(capture, {
+      hasEarlier: false,
+      live: false,
+    }))}\n`, options);
+  }
+}
+
 async function doctorCommand(args: string[]): Promise<void> {
   rejectUnknown(args, new Set(), false);
   const report = await inspectEnvironment(staticRoot());
@@ -95,14 +155,37 @@ async function loadInput(input: string): Promise<TopologySnapshot> {
 }
 
 async function serveSnapshot(snapshot: TopologySnapshot, options: ServeOptions): Promise<void> {
+  await servePayload(`${stableStringify(snapshot)}\n`, options);
+}
+
+async function servePayload(payloadJson: string, options: ServeOptions): Promise<void> {
+  await servePayloadProvider(async () => payloadJson, payloadJson, options);
+}
+
+async function servePayloadProvider(
+  payload: (url: URL) => Promise<string>,
+  initialPayload: string,
+  options: ServeOptions,
+): Promise<void> {
   const root = staticRoot();
   try { await readFile(resolve(root, "index.html")); }
   catch { throw new CliError("Contour UI assets are missing. Run npm run build before serve or explore.", 1); }
-  const snapshotJson = `${stableStringify(snapshot)}\n`;
   const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
-      if (url.pathname === "/api/snapshot") return send(response, 200, "application/json; charset=utf-8", snapshotJson);
+      if (url.pathname === "/api/snapshot") {
+        try {
+          const payloadJson = initialPayload && url.searchParams.get("initial") === "1"
+            ? initialPayload
+            : await payload(url);
+          return send(response, 200, "application/json; charset=utf-8", payloadJson);
+        } catch (error) {
+          const detail = error instanceof Error
+            ? error.message.replaceAll(/[\r\n]+/g, " ").slice(0, 320)
+            : "Snapshot provider failed.";
+          return send(response, 503, "text/plain; charset=utf-8", `Runtime snapshot unavailable: ${detail}\n`);
+        }
+      }
       const relative = url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname.slice(1));
       const file = resolve(root, relative);
       if (file !== root && !file.startsWith(`${root}${sep}`)) return send(response, 403, "text/plain; charset=utf-8", "Forbidden\n");
@@ -126,14 +209,24 @@ async function serveSnapshot(snapshot: TopologySnapshot, options: ServeOptions):
   process.once("SIGTERM", stop);
 }
 
-function parseServeOptions(args: string[]): ServeOptions {
-  rejectUnknown(args, new Set(["--host", "--port", "--no-open"]), true);
+function parseServeOptions(args: string[], additionalAllowed = new Set<string>()): ServeOptions {
+  rejectUnknown(args, new Set(["--host", "--port", "--no-open", ...additionalAllowed]), true);
   const host = optionValue(args, "--host") ?? "127.0.0.1";
   const portRaw = optionValue(args, "--port") ?? "4177";
   const port = Number(portRaw);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new CliError(`Invalid port: ${portRaw}`, 2);
   return { host, port, open: !args.includes("--no-open") };
 }
+
+function integerOption(args: string[], name: string, fallback: number): number {
+  const raw = optionValue(args, name);
+  if (raw === undefined) return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value)) throw new CliError(`${name} requires an integer.`, 2);
+  return value;
+}
+
+const valueOptions = new Set(["--host", "--port", "--output", "-o", "--limit"]);
 
 function optionValue(args: string[], ...names: string[]): string | undefined {
   for (const name of names) {
@@ -151,7 +244,7 @@ function positional(args: string[]): string[] {
   const values: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (["--host", "--port", "--output", "-o"].includes(arg)) { index += 1; continue; }
+    if (valueOptions.has(arg)) { index += 1; continue; }
     if (!arg.startsWith("-")) values.push(arg);
   }
   return values;
@@ -161,7 +254,7 @@ function rejectUnknown(args: string[], allowed: Set<string>, allowPositional: bo
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg.startsWith("-") && !allowed.has(arg)) throw new CliError(`Unknown option: ${arg}`, 2);
-    if (["--host", "--port", "--output", "-o"].includes(arg)) index += 1;
+    if (valueOptions.has(arg)) index += 1;
     else if (!allowPositional && !arg.startsWith("-")) throw new CliError(`Unexpected argument: ${arg}`, 2);
   }
 }
@@ -193,6 +286,9 @@ function printHelp(): void {
 Usage:
   contour                    Explore this machine
   contour <snapshot>         Explore canonical JSON or lstopo XML offline
+  contour runtime <capture>  Replay Argus JSONL as software topology
+  contour runtime --clickhouse
+                             Read the latest Argus records from ClickHouse
   contour doctor             Check prerequisites and supported modes
 
 Options:
@@ -208,6 +304,8 @@ function printAdvancedHelp(): void {
 
   contour collect [-o snapshot.json]       Collect canonical JSON without the UI
   contour serve <snapshot> [options]        Explicit offline server form
+  contour runtime <argus.jsonl> [options]    Normalize and replay Argus activities
+  contour runtime --clickhouse [--limit n]   Read Argus bodies from ClickHouse
   contour normalize <topology.xml>          Canonical JSON on stdout
   contour svg <topology.xml>                Deterministic SVG on stdout
 
