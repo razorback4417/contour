@@ -30,7 +30,7 @@ describe("progressive topology interaction", () => {
 
   it("keeps overview routes comfortably inset from the browser edges", () => {
     expect(cssRule(".overview-panel")).toMatch(/calc\(100%\s*-\s*144px\)/);
-    expect(cssRule(".question-card")).toMatch(/padding:\s*22px\s+12px/);
+    expect(cssRule(".workspace-card")).toMatch(/padding:\s*24px/);
   });
 
   it("uses a vertically centered product mark and hostname", () => {
@@ -64,7 +64,7 @@ describe("progressive topology interaction", () => {
     return start < 0 ? "" : styles.slice(start, styles.indexOf("}", start) + 1);
   }
 
-  it("keeps the overview to one system brief and two investigation routes", async () => {
+  it("presents physical topology and runtime evidence as separate peer workspaces", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("Not found", { status: 404, headers: { "content-type": "text/plain" } })));
     const container = document.createElement("div");
     document.body.append(container);
@@ -72,23 +72,39 @@ describe("progressive topology interaction", () => {
     await act(async () => root.render(createElement(App)));
 
     expect(container.querySelector("main")?.classList.contains("overview-mode")).toBe(true);
-    expect(container.querySelector(".system-line")).not.toBeNull();
-    expect(container.querySelectorAll(".question-card")).toHaveLength(2);
+    expect(container.querySelector(".overview-title h1")?.textContent)
+      .toBe("Choose an evidence workspace");
+    expect(container.querySelectorAll(".workspace-card")).toHaveLength(2);
+    expect(container.querySelector(".physical-workspace")?.textContent)
+      .toContain("Physical topology");
+    expect(container.querySelector(".physical-workspace")?.textContent)
+      .toContain("Bundled example");
+    expect(container.querySelector(".runtime-workspace-card")?.textContent)
+      .toContain("Runtime evidence");
+    expect(container.querySelector(".runtime-workspace-card")?.textContent)
+      .toContain("Synthetic replay");
     expect(container.querySelector(".controls")).toBeNull();
     expect(container.querySelector(".details")).toBeNull();
     expect(container.querySelector(".overview-findings")).toBeNull();
     expect(container.querySelector(".brand-mark")?.getAttribute("aria-label")).toBe("Contour");
     expect(container.querySelector(".brand strong")).toBeNull();
-    expect(container.querySelector(".host-label")?.textContent).toBeTruthy();
+    expect(container.querySelector(".host-label")?.textContent).toBe("Contour");
+    expect(container.querySelector(".primary-nav")?.getAttribute("aria-label"))
+      .toBe("Contour workspaces");
+    expect(container.querySelector(".primary-nav")?.textContent)
+      .toContain("Runtime evidence");
     const importButton = [...container.querySelectorAll<HTMLButtonElement>(".header-actions button")]
       .find((button) => button.textContent === "Import")!;
     act(() => importButton.click());
     expect(container.querySelector('[role="dialog"]')?.textContent).toContain("lstopo XML");
-    expect(container.querySelector('[role="dialog"]')?.textContent).toContain("contour.topology/v2");
-    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Close topology snapshot guide"]')!.click());
+    expect(container.querySelector('[role="dialog"]')?.textContent).toContain("Argus JSONL");
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Close evidence import guide"]')!.click());
     act(() => container.querySelector<HTMLButtonElement>(".action-button")!.click());
     expect(container.querySelector("#action-guide-title")?.textContent).toContain("Open an example");
-    expect(container.querySelector(".action-guide")?.textContent).toContain("Export current evidence");
+    expect(container.querySelector(".action-guide")?.textContent)
+      .toContain("Open a workspace before exporting");
+    expect(container.querySelector(".action-guide")?.textContent)
+      .not.toContain("Export current evidence");
     act(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(container.querySelector(".action-guide")).toBeNull();
 
@@ -103,14 +119,15 @@ describe("progressive topology interaction", () => {
     const root = createRoot(container);
     await act(async () => root.render(createElement(App)));
 
-    act(() => container.querySelectorAll<HTMLButtonElement>(".question-card")[0]!.click());
+    act(() => [...container.querySelectorAll<HTMLButtonElement>(".workspace-actions button")]
+      .find((button) => button.textContent === "Open I/O topology")!.click());
     expect(container.querySelector("main")?.classList.contains("inspect-mode")).toBe(true);
 
     const home = container.querySelector<HTMLButtonElement>("button.brand")!;
-    expect(home?.getAttribute("aria-label")).toBe("Return to topology overview");
+    expect(home?.getAttribute("aria-label")).toBe("Return to Contour overview");
     act(() => home.click());
     expect(container.querySelector("main")?.classList.contains("overview-mode")).toBe(true);
-    expect(container.querySelectorAll(".question-card")).toHaveLength(2);
+    expect(container.querySelectorAll(".workspace-card")).toHaveLength(2);
 
     act(() => root.unmount());
     container.remove();
@@ -124,7 +141,7 @@ describe("progressive topology interaction", () => {
     await act(async () => root.render(createElement(App)));
 
     const runtimeButton = [...container.querySelectorAll<HTMLButtonElement>(".primary-nav button")]
-      .find((button) => button.textContent === "Runtime")!;
+      .find((button) => button.textContent === "Runtime evidence")!;
     act(() => runtimeButton.click());
 
     expect(container.querySelector(".runtime-workspace")).not.toBeNull();
@@ -142,8 +159,19 @@ describe("progressive topology interaction", () => {
     expect(container.querySelector(".runtime-playback i")).toBeNull();
     expect(container.querySelector(".runtime-map .runtime-now")).toBeNull();
     expect(container.querySelector(".runtime-sequence > header .runtime-active-event")).not.toBeNull();
+    expect(container.querySelector(".runtime-playback-state")?.textContent)
+      .toContain("Replay playing");
     expect(container.querySelector(".runtime-playback")?.textContent).toContain("Pause replay");
     expect(container.querySelector(".runtime-playback")?.textContent).toContain("Restart replay");
+    act(() => [...container.querySelectorAll<HTMLButtonElement>(".runtime-playback button")]
+      .find((button) => button.textContent === "Pause replay")!.click());
+    expect(container.querySelector(".runtime-playback-state")?.textContent)
+      .toContain("Replay paused");
+    expect(container.querySelector(".runtime-playback")?.textContent).toContain("Play replay");
+    act(() => [...container.querySelectorAll<HTMLButtonElement>(".runtime-playback button")]
+      .find((button) => button.textContent === "Play replay")!.click());
+    expect(container.querySelector(".runtime-playback-state")?.textContent)
+      .toContain("Replay playing");
     expect(container.querySelector(".runtime-compatibility > summary")?.textContent)
       .toContain("5 normalized · 0 diagnostics");
     act(() => container.querySelector<HTMLElement>(".runtime-compatibility > summary")!.click());
@@ -257,6 +285,16 @@ describe("progressive topology interaction", () => {
     await act(async () => root.render(createElement(App)));
 
     expect(container.querySelector(".runtime-heading")?.textContent).toContain("LIVE · 2S REFRESH");
+    expect(container.querySelector(".runtime-playback-state")?.textContent)
+      .toContain("Following live");
+    act(() => [...container.querySelectorAll<HTMLButtonElement>(".runtime-playback button")]
+      .find((button) => button.textContent === "Pause live view")!.click());
+    expect(container.querySelector(".runtime-heading")?.textContent)
+      .toContain("LIVE FEED · VIEW PAUSED");
+    expect(container.querySelector(".runtime-playback-state")?.textContent)
+      .toContain("Live view paused");
+    expect(container.querySelector(".runtime-playback")?.textContent)
+      .toContain("Resume live view");
 
     act(() => root.unmount());
     container.remove();
@@ -271,13 +309,13 @@ describe("progressive topology interaction", () => {
     await act(async () => root.render(createElement(App)));
 
     expect(container.querySelector(".loading-workspace")).not.toBeNull();
-    expect(container.querySelector(".question-card")).toBeNull();
+    expect(container.querySelector(".workspace-card")).toBeNull();
 
     await act(async () => {
       resolveFetch(new Response("Not found", { status: 404, headers: { "content-type": "text/plain" } }));
       await Promise.resolve();
     });
-    expect(container.querySelector(".question-card")).not.toBeNull();
+    expect(container.querySelector(".workspace-card")).not.toBeNull();
     act(() => root.unmount());
     container.remove();
   });
@@ -289,10 +327,12 @@ describe("progressive topology interaction", () => {
     const root = createRoot(container);
     await act(async () => root.render(createElement(App)));
 
-    expect(container.querySelector(".overview-title")?.textContent).toContain("SYSTEM");
+    expect(container.querySelector(".overview-title")?.textContent)
+      .toContain("EVIDENCE WORKSPACES");
     expect(container.querySelectorAll("g.node")).toHaveLength(0);
 
-    act(() => container.querySelector<HTMLButtonElement>(".question-card")!.click());
+    act(() => [...container.querySelectorAll<HTMLButtonElement>(".workspace-actions button")]
+      .find((button) => button.textContent === "Open I/O topology")!.click());
     const groupedCount = container.querySelectorAll("g.node").length;
     expect(groupedCount).toBeGreaterThan(0);
     expect(groupedCount).toBeLessThan(28);
@@ -339,7 +379,8 @@ describe("progressive topology interaction", () => {
     document.body.append(container);
     const root = createRoot(container);
     await act(async () => root.render(createElement(App)));
-    act(() => container.querySelector<HTMLButtonElement>(".question-card")!.click());
+    act(() => [...container.querySelectorAll<HTMLButtonElement>(".workspace-actions button")]
+      .find((button) => button.textContent === "Open I/O topology")!.click());
     const svg = container.querySelector<SVGSVGElement>(".viewport svg")!;
     Object.defineProperty(svg, "setPointerCapture", { value: vi.fn() });
     const pointer = (type: string, x: number, y: number) => {
@@ -364,7 +405,8 @@ describe("progressive topology interaction", () => {
     document.body.append(container);
     const root = createRoot(container);
     await act(async () => root.render(createElement(App)));
-    act(() => container.querySelector<HTMLButtonElement>(".question-card")!.click());
+    act(() => [...container.querySelectorAll<HTMLButtonElement>(".workspace-actions button")]
+      .find((button) => button.textContent === "Open I/O topology")!.click());
 
     const svg = container.querySelector<SVGSVGElement>(".viewport svg")!;
     const nodeRect = container.querySelector<SVGRectElement>("g.node > rect")!;
@@ -386,7 +428,8 @@ describe("progressive topology interaction", () => {
     document.body.append(container);
     const root = createRoot(container);
     await act(async () => root.render(createElement(App)));
-    act(() => container.querySelectorAll<HTMLButtonElement>(".question-card")[0]!.click());
+    act(() => [...container.querySelectorAll<HTMLButtonElement>(".workspace-actions button")]
+      .find((button) => button.textContent === "Open I/O topology")!.click());
 
     const input = container.querySelector<HTMLInputElement>(".search")!;
     const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;

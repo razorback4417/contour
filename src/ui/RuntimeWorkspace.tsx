@@ -118,7 +118,9 @@ export function RuntimeWorkspace({
     [capture, projection],
   );
   const activityGroups = useMemo(() => groupRuntimeActivity(focusedActivity), [focusedActivity]);
-  const [playback, setPlayback] = useState<"live" | "replay" | "paused">(
+  const [playback, setPlayback] = useState<
+    "live" | "live-paused" | "replay" | "paused"
+  >(
     live && following ? "live" : "replay",
   );
   const [playhead, setPlayhead] = useState(0);
@@ -189,9 +191,13 @@ export function RuntimeWorkspace({
     onFocusChange?.(id);
   }
 
-  function choosePlayback(next: "live" | "replay" | "paused") {
+  function choosePlayback(next: "live" | "live-paused" | "replay" | "paused") {
     setPlayback(next);
     if (live) onFollowingChange?.(next === "live");
+  }
+
+  async function resumeLive(): Promise<void> {
+    if (!onJumpLive || await onJumpLive()) choosePlayback("live");
   }
 
   return <div className="runtime-workspace">
@@ -367,7 +373,13 @@ export function RuntimeWorkspace({
           <h2>{projection.focus.label}</h2>
         </div>
         {activeObservation && <div className="runtime-active-event" key={activeObservation.id}>
-          <span>{playback === "live" ? "LATEST" : playback === "paused" ? "PAUSED" : "REPLAYING"}</span>
+          <span>
+            {playback === "live"
+              ? "LATEST"
+              : playback === "paused" || playback === "live-paused"
+                ? "PAUSED"
+                : "REPLAYING"}
+          </span>
           <b>
             {activityGroupLabel(activeGroup)}
             {activeGroup.count > 1 ? ` ×${activeGroup.count}` : ""}
@@ -378,24 +390,68 @@ export function RuntimeWorkspace({
           </small>
         </div>}
         <div className="runtime-playback" aria-label="Flow playback controls">
-          {playback === "live" ? <span>FOLLOWING LIVE</span> : <button
-            type="button"
-            onClick={() => choosePlayback(playback === "replay" ? "paused" : "replay")}
-          >{playback === "replay" ? "Pause replay" : "Resume replay"}</button>}
-          {playback === "live" && <button
-            type="button"
-            onClick={() => {
-              choosePlayback("replay");
-              setPlayhead(0);
-            }}
-          >Replay window</button>}
-          {playback !== "live" && <button
-            type="button"
-            onClick={() => {
-              setPlayhead(0);
-              choosePlayback("replay");
-            }}
-          >Restart replay</button>}
+          <span className="runtime-playback-state" aria-live="polite">
+            <b>
+              {playback === "live"
+                ? "Following live"
+                : playback === "live-paused"
+                  ? "Live view paused"
+                  : playback === "replay"
+                    ? "Replay playing"
+                    : "Replay paused"}
+            </b>
+            <small>
+              {playback === "live"
+                ? "New events update this view automatically."
+                : playback === "live-paused"
+                  ? "New events will not move the current view."
+                  : playback === "replay"
+                    ? "Advancing through the selected window."
+                    : "Stopped on the selected event."}
+            </small>
+          </span>
+          <span className="runtime-playback-actions">
+            {playback === "live" && <button
+              className="primary-playback"
+              type="button"
+              onClick={() => choosePlayback("live-paused")}
+            >Pause live view</button>}
+            {playback === "live-paused" && <button
+              className="primary-playback"
+              type="button"
+              disabled={Boolean(historyAction)}
+              onClick={resumeLive}
+            >Resume live view</button>}
+            {playback === "replay" && <button
+              className="primary-playback"
+              type="button"
+              onClick={() => choosePlayback("paused")}
+            >Pause replay</button>}
+            {playback === "paused" && <button
+              className="primary-playback"
+              type="button"
+              onClick={() => choosePlayback("replay")}
+            >Play replay</button>}
+            {(playback === "live" || playback === "live-paused") && <button
+              type="button"
+              onClick={() => {
+                setPlayhead(0);
+                choosePlayback("replay");
+              }}
+            >Replay from start</button>}
+            {(playback === "replay" || playback === "paused") && <button
+              type="button"
+              onClick={() => {
+                setPlayhead(0);
+                choosePlayback("replay");
+              }}
+            >Restart replay</button>}
+            {live && (playback === "replay" || playback === "paused") && <button
+              type="button"
+              disabled={Boolean(historyAction)}
+              onClick={resumeLive}
+            >Return to live</button>}
+          </span>
         </div>
       </header>
       <ol>

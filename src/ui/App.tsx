@@ -116,9 +116,11 @@ export function App() {
   const selectedNode = activeNodeId ? nodeById.get(activeNodeId) : undefined;
   const dossier = useMemo(() => traceEndpoints.length === 2 ? buildPathDossier(snapshot, traceEndpoints[0], traceEndpoints[1]) : activeNodeId ? buildPathDossier(snapshot, activeNodeId) : undefined, [snapshot, traceEndpoints, activeNodeId]);
   const numaNodes = snapshot.nodes.filter((node) => node.kind === "numa_node");
-  const hostLabel = mode === "runtime"
-    ? runtimeCapture.host.hostname ?? runtimeCapture.host.id
-    : nodeById.get(snapshot.hostId)?.label ?? "Linux host";
+  const hostLabel = mode === "overview"
+    ? "Contour"
+    : mode === "runtime"
+      ? runtimeCapture.host.hostname ?? runtimeCapture.host.id
+      : nodeById.get(snapshot.hostId)?.label ?? "Linux host";
   const successfulCollectors = snapshot.collectors.filter((collector) => collector.status === "success").length;
 
   useEffect(() => {
@@ -375,8 +377,8 @@ export function App() {
 
   return <div className="shell">
     <header className="app-header">
-      <button type="button" className="brand" aria-label="Return to topology overview" onClick={() => { setMode("overview"); setActiveNodeId(undefined); }}><ContourMark/><span className="host-label">{hostLabel}</span></button>
-      <nav className="primary-nav" aria-label="Topology views"><button className={mode === "overview" ? "active" : ""} onClick={() => { setMode("overview"); setActiveNodeId(undefined); }}>Overview</button><button className={mode === "io" ? "active" : ""} onClick={() => openMode("io")}>I/O</button><button className={mode === "compute" ? "active" : ""} onClick={() => openMode("compute")}>CPU &amp; NUMA</button><button className={mode === "runtime" ? "active" : ""} onClick={() => { setMode("runtime"); setActiveNodeId(undefined); }}>Runtime</button></nav>
+      <button type="button" className="brand" aria-label="Return to Contour overview" onClick={() => { setMode("overview"); setActiveNodeId(undefined); }}><ContourMark/><span className="host-label">{hostLabel}</span></button>
+      <nav className="primary-nav" aria-label="Contour workspaces"><button className={mode === "overview" ? "active" : ""} onClick={() => { setMode("overview"); setActiveNodeId(undefined); }}>Overview</button><button className={mode === "io" ? "active" : ""} onClick={() => openMode("io")}>I/O topology</button><button className={mode === "compute" ? "active" : ""} onClick={() => openMode("compute")}>CPU &amp; NUMA</button><button className={mode === "runtime" ? "active" : ""} onClick={() => { setMode("runtime"); setActiveNodeId(undefined); }}>Runtime evidence</button></nav>
       <div className="header-actions">
         <button
           type="button"
@@ -392,12 +394,12 @@ export function App() {
       </div>
     </header>
     {importGuideOpen && <ImportGuide
-      kind={mode === "runtime" ? "runtime" : "topology"}
+      kind={mode === "overview" ? "overview" : mode === "runtime" ? "runtime" : "topology"}
       onClose={() => setImportGuideOpen(false)}
       onOpenFile={openFile}
     />}
     {actionGuideOpen && <ActionGuide
-      kind={mode === "runtime" ? "runtime" : "topology"}
+      kind={mode === "overview" ? "overview" : mode === "runtime" ? "runtime" : "topology"}
       onClose={() => setActionGuideOpen(false)}
       onExample={(example) => {
         if (example === "workstation") chooseSnapshot(load(fixtures.workstation, "fixture:workstation.xml"));
@@ -424,7 +426,16 @@ export function App() {
         <details className="panel-disclosure legend"><summary><span>Visual key</span><b>roles + links</b></summary><span className="legend-label">NODE ROLE</span>{nodeColorKey.map(([label, color]) => <div key={label}><i className="role" style={{ background: color }}/><span>{label}</span></div>)}<span className="legend-label relationships">RELATIONSHIPS</span><div><i className="contains"/><span><b>contains</b> source hierarchy</span></div><div><i className="backed"/><span><b>backed by</b> OS → PCI device</span></div><div><i className="exposes"/><span><b>exposes</b> device → port</span></div><div><i className="connected"/><span><b>connected to</b> RDMA port ↔ netdev</span></div><div><i className="local"/><span><b>local to</b> explicit NUMA evidence</span></div><p>Color identifies hardware role; lines show known topology. Neither represents health or measured performance.</p></details>
       </aside>}
       <section className={`viewport ${topologyMode ? "" : "overview-workspace"}`}>
-        {mode === "overview" ? loadingInitialSnapshot ? <LoadingWorkspace/> : <OverviewWorkspace snapshot={snapshot} overview={overview} onOpen={openMode}/> : mode === "runtime"
+        {mode === "overview" ? loadingInitialSnapshot ? <LoadingWorkspace/> : <OverviewWorkspace
+          snapshot={snapshot}
+          overview={overview}
+          runtimeCapture={runtimeCapture}
+          runtimeGraph={runtimeGraph}
+          runtimeLive={runtimeLive}
+          runtimeStale={runtimeRefreshFailed}
+          onOpenTopology={openMode}
+          onOpenRuntime={() => { setMode("runtime"); setActiveNodeId(undefined); }}
+        /> : mode === "runtime"
           ? <RuntimeWorkspace
             capture={runtimeCapture}
             graph={runtimeGraph}
@@ -476,51 +487,77 @@ function ImportGuide({
   onClose,
   onOpenFile,
 }: {
-  kind: "runtime" | "topology";
+  kind: "overview" | "runtime" | "topology";
   onClose: () => void;
   onOpenFile: (event: ChangeEvent<HTMLInputElement>) => void;
 }) {
+  const overview = kind === "overview";
   const runtime = kind === "runtime";
+  const closeLabel = overview
+    ? "evidence import"
+    : runtime
+      ? "runtime evidence"
+      : "topology snapshot";
   return <div className="import-overlay" role="presentation" onMouseDown={(event) => {
     if (event.target === event.currentTarget) onClose();
   }}>
-    <section className="import-guide" role="dialog" aria-modal="true" aria-labelledby="runtime-import-title">
+    <section className="import-guide" role="dialog" aria-modal="true" aria-labelledby="import-guide-title">
       <header>
         <div>
-          <label className="section-label">{runtime ? "RUNTIME EVIDENCE" : "TOPOLOGY SNAPSHOT"}</label>
-          <h2 id="runtime-import-title">
-            {runtime ? "Open an Argus capture" : "Open a Linux topology"}
+          <label className="section-label">
+            {overview ? "CONTOUR EVIDENCE" : runtime ? "RUNTIME EVIDENCE" : "TOPOLOGY SNAPSHOT"}
+          </label>
+          <h2 id="import-guide-title">
+            {overview ? "Open evidence" : runtime ? "Open an Argus capture" : "Open a Linux topology"}
           </h2>
         </div>
         <button
           type="button"
-          aria-label={`Close ${runtime ? "runtime evidence" : "topology snapshot"} guide`}
+          aria-label={`Close ${closeLabel} guide`}
           onClick={onClose}
         >×</button>
       </header>
       <p>
-        {runtime
+        {overview
+          ? "Choose physical topology or runtime evidence. Contour identifies canonical JSON by schema and opens the matching workspace."
+          : runtime
           ? "Import a bounded capture for offline reconstruction. Contour normalizes the records, rebuilds execution identities, and projects their file and TCP relationships."
           : "Import a saved machine snapshot for offline exploration. Contour normalizes the hardware evidence and rebuilds its CPU, NUMA, PCIe, accelerator, network, and storage relationships."}
       </p>
       <div className="import-formats">
-        <article>
-          <code>{runtime ? ".jsonl" : ".xml"}</code>
-          <b>{runtime ? "Argus activity records" : "lstopo XML"}</b>
-          <span>{runtime
-            ? "One emitted Argus JSON object per line. Supported v0 evidence includes process, container, file-descriptor, and TCP activity."
-            : "Whole-system hwloc output, typically captured with lstopo --whole-system --of xml -."}</span>
-        </article>
-        <article>
-          <code>.json</code>
-          <b>{runtime ? "Contour runtime capture" : "Contour topology snapshot"}</b>
-          <span>A previously exported <code>
-            {runtime ? "contour.runtime/v1" : "contour.topology/v2"}
-          </code> {runtime ? "capture with normalized observations and diagnostics." : "snapshot with canonical facts, relationships, provenance, and diagnostics."}</span>
-        </article>
+        {overview ? <>
+          <article>
+            <code>.xml / .json</code>
+            <b>Physical topology</b>
+            <span>lstopo XML or a <code>contour.topology/v2</code> snapshot.</span>
+          </article>
+          <article>
+            <code>.jsonl / .json</code>
+            <b>Runtime evidence</b>
+            <span>Argus JSONL or a <code>contour.runtime/v1</code> capture.</span>
+          </article>
+        </> : <>
+          <article>
+            <code>{runtime ? ".jsonl" : ".xml"}</code>
+            <b>{runtime ? "Argus activity records" : "lstopo XML"}</b>
+            <span>{runtime
+              ? "One emitted Argus JSON object per line. Supported v0 evidence includes process, container, file-descriptor, and TCP activity."
+              : "Whole-system hwloc output, typically captured with lstopo --whole-system --of xml -."}</span>
+          </article>
+          <article>
+            <code>.json</code>
+            <b>{runtime ? "Contour runtime capture" : "Contour topology snapshot"}</b>
+            <span>A previously exported <code>
+              {runtime ? "contour.runtime/v1" : "contour.topology/v2"}
+            </code> {runtime ? "capture with normalized observations and diagnostics." : "snapshot with canonical facts, relationships, provenance, and diagnostics."}</span>
+          </article>
+        </>}
       </div>
       <aside>
-        {runtime ? <>
+        {overview ? <>
+          Screenshots, PDFs, and arbitrary ClickHouse exports are not evidence
+          import formats.
+        </> : runtime ? <>
           For a live feed, start <code>contour runtime --clickhouse</code>. OTLP request
           envelopes and arbitrary ClickHouse exports are not file-import formats.
         </> : <>
@@ -534,7 +571,9 @@ function ImportGuide({
           Choose evidence file
           <input
             type="file"
-            accept={runtime
+            accept={overview
+              ? ".xml,.json,.jsonl,text/xml,application/json,application/x-ndjson"
+              : runtime
               ? ".json,.jsonl,application/json,application/x-ndjson"
               : ".xml,.json,text/xml,application/json"}
             onChange={(event) => {
@@ -554,11 +593,12 @@ function ActionGuide({
   onExample,
   onExport,
 }: {
-  kind: "runtime" | "topology";
+  kind: "overview" | "runtime" | "topology";
   onClose: () => void;
   onExample: (example: "workstation" | "accelerator" | "runtime") => void;
   onExport: (format: "runtime" | "snapshot" | "svg") => void;
 }) {
+  const overview = kind === "overview";
   const runtime = kind === "runtime";
   return <div className="import-overlay" role="presentation" onMouseDown={(event) => {
     if (event.target === event.currentTarget) onClose();
@@ -588,7 +628,12 @@ function ActionGuide({
           </button>
         </div>
       </section>
-      <section>
+      {overview ? <section className="action-export-note">
+        <header>
+          <b>Export</b>
+          <span>Open a workspace before exporting its current evidence.</span>
+        </header>
+      </section> : <section>
         <header>
           <b>Export current evidence</b>
           <span>Save the normalized data behind the current workspace.</span>
@@ -605,7 +650,7 @@ function ActionGuide({
             </button>
           </>}
         </div>
-      </section>
+      </section>}
     </section>
   </div>;
 }
@@ -614,13 +659,91 @@ function ContourMark() {
   return <svg className="brand-mark" viewBox="0 0 24 24" role="img" aria-label="Contour"><path d="M3.5 12c0-5 3.1-8 8-8 5.7 0 9 3 9 8 0 4.8-2.8 8-8 8-5.7 0-9-3-9-8Z"/><path d="M7 12c0-3.1 2-5 5.1-5 3.5 0 5.9 1.9 5.9 5 0 3-1.9 5-5.3 5C9.1 17 7 15 7 12Z"/><path d="M10 12c0-1.5 1-2.5 2.6-2.5 1.5 0 2.5 1 2.5 2.5s-.9 2.5-2.5 2.5S10 13.5 10 12Z"/></svg>;
 }
 
-function OverviewWorkspace({ snapshot, overview, onOpen }: { snapshot: TopologySnapshot; overview: ReturnType<typeof topologyOverview>; onOpen: (mode: TopologyViewMode) => void }) {
+function OverviewWorkspace({
+  snapshot,
+  overview,
+  runtimeCapture,
+  runtimeGraph,
+  runtimeLive,
+  runtimeStale,
+  onOpenTopology,
+  onOpenRuntime,
+}: {
+  snapshot: TopologySnapshot;
+  overview: ReturnType<typeof topologyOverview>;
+  runtimeCapture: RuntimeCapture;
+  runtimeGraph: ReturnType<typeof buildRuntimeGraph>;
+  runtimeLive: boolean;
+  runtimeStale: boolean;
+  onOpenTopology: (mode: TopologyViewMode) => void;
+  onOpenRuntime: () => void;
+}) {
   const host = snapshot.nodes.find((node) => node.id === snapshot.hostId)?.label ?? "Linux host";
   const successful = snapshot.collectors.filter((collector) => collector.status === "success").length;
-  return <div className="overview-panel"><div className="overview-title"><label className="section-label">SYSTEM</label><h1>{host}</h1><p className="system-line">{overview.cpuPackages} CPU {overview.cpuPackages === 1 ? "package" : "packages"} · {overview.numaNodes} NUMA · {formatBytes(overview.memoryBytes)} · {overview.gpus} GPU · {overview.rdmaDevices} RDMA · {overview.storageDevices} storage</p></div><div className="question-list">
-    <button className="question-card" onClick={() => onOpen("io")}><span><small>EXPLORE</small><strong>I/O topology</strong><p>PCIe attachment, shared upstream paths, accelerators, NICs, RDMA mappings, and storage.</p></span><code>{overview.upstreamGroups} upstream groups</code><b>Open →</b></button>
-    <button className="question-card" onClick={() => onOpen("compute")}><span><small>EXPLORE</small><strong>CPU &amp; NUMA</strong><p>Packages, memory domains, capacity, cores, caches, and explicit locality evidence.</p></span><code>{overview.cpuCores} cores · {overview.numaNodes} nodes</code><b>Open →</b></button>
-  </div><p className="evidence-line">{successful}/{snapshot.collectors.length} collectors · {snapshot.diagnostics.length} diagnostics · {overview.totalNodes} canonical nodes · schema {snapshot.schemaVersion.split("/")[1]}</p></div>;
+  const physicalFixture = snapshot.collectors.some((collector) =>
+    collector.source?.startsWith("fixture:"));
+  const runtimeSynthetic = runtimeCapture.observations.length > 0
+    && runtimeCapture.observations.every((observation) => observation.source.synthetic);
+  const runtimeExecutions = runtimeGraph.nodes.filter((node) =>
+    node.kind === "process_execution").length;
+  const runtimeStatus = runtimeStale
+    ? "Feed stale"
+    : runtimeLive
+      ? "Live feed"
+      : runtimeSynthetic
+        ? "Synthetic replay"
+        : "Saved capture";
+  return <div className="overview-panel">
+    <div className="overview-title">
+      <label className="section-label">EVIDENCE WORKSPACES</label>
+      <h1>Choose an evidence workspace</h1>
+      <p className="overview-intro">
+        Physical topology and runtime activity use separate evidence and
+        schemas. Contour does not infer one from the other.
+      </p>
+    </div>
+    <div className="workspace-grid">
+      <article className="workspace-card physical-workspace">
+        <header>
+          <label>Physical topology</label>
+          <span>{physicalFixture ? "Bundled example" : "Machine snapshot"}</span>
+        </header>
+        <h2>How hardware is connected</h2>
+        <p>Inspect CPU, NUMA, PCIe, GPU, NIC, RDMA, and storage relationships with their supporting evidence.</p>
+        <code>
+          {host} · {overview.cpuPackages} CPU · {overview.numaNodes} NUMA ·{" "}
+          {overview.gpus} GPU · {overview.rdmaDevices} RDMA
+        </code>
+        <div className="workspace-actions">
+          <button type="button" onClick={() => onOpenTopology("io")}>Open I/O topology</button>
+          <button type="button" onClick={() => onOpenTopology("compute")}>Open CPU &amp; NUMA</button>
+        </div>
+      </article>
+      <article className="workspace-card runtime-workspace-card">
+        <header>
+          <label>Runtime evidence</label>
+          <span className={runtimeStale ? "stale" : runtimeLive ? "live" : ""}>
+            {runtimeStatus}
+          </span>
+        </header>
+        <h2>How software activity connects</h2>
+        <p>Reconstruct process, container, file, TCP connection, interface, and endpoint relationships over time.</p>
+        <code>
+          {runtimeCapture.host.hostname ?? runtimeCapture.host.id} ·{" "}
+          {runtimeExecutions} executions · {runtimeCapture.observations.length} observations
+        </code>
+        <div className="workspace-actions">
+          <button type="button" onClick={onOpenRuntime}>Open runtime evidence</button>
+        </div>
+      </article>
+    </div>
+    <p className="evidence-line">
+      Physical · {successful}/{snapshot.collectors.length} collectors ·{" "}
+      {snapshot.diagnostics.length} diagnostics · schema {snapshot.schemaVersion.split("/")[1]}
+      {" · "}Runtime · {runtimeCapture.diagnostics.length} diagnostics · schema{" "}
+      {runtimeCapture.schemaVersion.split("/")[1]}
+    </p>
+  </div>;
 }
 
 function TraceState({ endpoints, path, nodes, onClear }: { endpoints: string[]; path: string[]; nodes: ReadonlyMap<string, TopologyNode>; onClear: () => void }) {
