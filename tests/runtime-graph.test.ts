@@ -104,6 +104,32 @@ describe("runtime graph reducer", () => {
     expect(interfaceNode).toMatchObject({ label: "eth0", facts: { addresses: "192.0.2.10/24" } });
     expect(edge).toMatchObject({ source: connection?.id, basis: "inferred" });
   });
+
+  it("keeps the observed working directory on the process execution", () => {
+    const capture = normalizeArgusJsonLines(JSON.stringify({
+      message_id: "escaped-working-directory",
+      occurred_message_time_iso_8601_ns: "2026-07-27T18:00:00Z",
+      workload_information: { unique_identifier: "host" },
+      activity_data: {
+        name: "process_created",
+        process_details: {
+          process_id: 42,
+          process_name: "sandbox",
+          process_creation_time_iso_8601_ns: "2026-07-27T17:59:59Z",
+          process_mount_points_namespace: "4026544486",
+          process_current_working_directory: "/sys/fs/cgroup",
+        },
+      },
+    }), { synthetic: false });
+
+    const process = buildRuntimeGraph(capture).nodes
+      .find((node) => node.kind === "process_execution");
+
+    expect(process?.facts).toMatchObject({
+      mountNamespace: "4026544486",
+      currentWorkingDirectory: "/sys/fs/cgroup",
+    });
+  });
 });
 
 function processObservation(id: string, observedAt: string, createdAt: string | undefined): RuntimeObservation {

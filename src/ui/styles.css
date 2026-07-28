@@ -370,9 +370,21 @@ aside section { margin-bottom: 22px; }
 .runtime-sequence li span { margin-top: 4px; color: #606b72; font: 8px ui-monospace, monospace; }
 .runtime-sequence li small { margin-top: 4px; color: #6d9195; font: 8px ui-monospace, monospace; }
 .runtime-empty { margin: 0; border: 1px solid #293036; color: #657079; padding: 28px; font: 10px/1.5 ui-monospace, monospace; }
-.runtime-evidence { display: flex; justify-content: space-between; gap: 20px; margin-top: 14px; color: #566168; font: 9px ui-monospace, monospace; }
+.runtime-evidence { display: grid; grid-template-columns: auto auto 1fr auto; gap: 20px; align-items: center; margin-top: 14px; color: #566168; font: 9px ui-monospace, monospace; }
 .runtime-evidence button { border: 0; background: transparent; color: #74989d; padding: 0; font: inherit; cursor: pointer; }
 .runtime-evidence button:hover { color: #b5c8cb; }
+.runtime-compatibility { position: relative; justify-self: end; }
+.runtime-compatibility > summary { display: flex; gap: 7px; color: #66747b; list-style: none; cursor: pointer; }
+.runtime-compatibility > summary::-webkit-details-marker { display: none; }
+.runtime-compatibility > summary span { color: #769a9f; }
+.runtime-compatibility > summary b { font-weight: 400; }
+.runtime-compatibility[open] > summary { color: #b4c0c4; }
+.runtime-compatibility > div { position: absolute; right: 0; bottom: calc(100% + 7px); z-index: 10; display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 16px; width: min(620px, calc(100vw - 48px)); border: 1px solid #3b484e; background: #101416; box-shadow: 0 18px 40px #000a; padding: 13px; }
+.runtime-compatibility label { display: block; margin-bottom: 7px; color: #657078; font: 8px ui-monospace, monospace; letter-spacing: .08em; }
+.runtime-compatibility ul { margin: 0; padding: 0; list-style: none; }
+.runtime-compatibility li { display: grid; grid-template-columns: minmax(100px, auto) 1fr; gap: 8px; border-top: 1px solid #252d31; padding: 7px 0; }
+.runtime-compatibility li b { color: #aeb8bc; font-weight: 500; }
+.runtime-compatibility li span, .runtime-compatibility p { margin: 0; color: #667279; text-align: right; }
 .runtime-ledger-overlay { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; background: #060809d4; padding: 24px; }
 .runtime-ledger { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; width: min(1040px, calc(100vw - 48px)); height: min(760px, calc(100vh - 48px)); border: 1px solid #3a444a; background: #101416; box-shadow: 0 24px 80px #000d; padding: 18px; }
 .runtime-ledger > header { display: flex; justify-content: space-between; border-bottom: 1px solid #293036; padding-bottom: 13px; }

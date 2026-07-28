@@ -97,6 +97,9 @@ describe("Argus runtime adapter", () => {
           process_self_exec_id: "1",
           process_name: "client",
           process_creation_time_iso_8601_ns: "2026-07-27T22:53:59.000000000Z",
+          process_container_id: "sandbox-42",
+          process_mount_points_namespace: "mnt:[4026544486]",
+          process_current_working_directory: "/sys/fs/cgroup",
         },
       },
     });
@@ -108,6 +111,9 @@ describe("Argus runtime adapter", () => {
       process: {
         processId: 2202,
         name: "client",
+        containerId: "sandbox-42",
+        mountNamespace: "mnt:[4026544486]",
+        currentWorkingDirectory: "/sys/fs/cgroup",
       },
       fileDescriptor: {
         descriptorId: "9",

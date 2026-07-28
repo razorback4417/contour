@@ -13,7 +13,11 @@ function capture(overrides: Record<string, unknown> = {}) {
       kind: "process_started",
       observedAt: "2026-07-27T18:00:01Z",
       basis: "observed",
-      process: { processId: 42, name: "python3" },
+      process: {
+        processId: 42,
+        name: "python3",
+        currentWorkingDirectory: "/srv/inference",
+      },
       source: {
         collector: "argus",
         product: "NVIDIA DOCA Argus",
@@ -34,6 +38,7 @@ describe("runtime capture contract", () => {
     expect(parsed.schemaVersion).toBe("contour.runtime/v1");
     expect(parsed.host.hostname).toBe("demo-host");
     expect(parsed.observations[0].process?.processId).toBe(42);
+    expect(parsed.observations[0].process?.currentWorkingDirectory).toBe("/srv/inference");
     expect(parsed.observations[0].source.synthetic).toBe(true);
   });
 

@@ -5,7 +5,9 @@ import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/ui/App";
 import { normalizeArgusJsonLines } from "../src/runtime/argus";
+import { buildRuntimeGraph } from "../src/runtime/graph";
 import { runtimeBrowserWindow } from "../src/runtime/transport";
+import { RuntimeDossier } from "../src/ui/RuntimeDossier";
 
 const styles = readFileSync("src/ui/styles.css", "utf8");
 const runtimeWorkspaceSource = readFileSync("src/ui/RuntimeWorkspace.tsx", "utf8");
@@ -141,10 +143,19 @@ describe("progressive topology interaction", () => {
     expect(container.querySelector(".runtime-map .runtime-now")).toBeNull();
     expect(container.querySelector(".runtime-sequence > header .runtime-active-event")).not.toBeNull();
     expect(container.querySelector(".runtime-playback")?.textContent).toContain("Pause replay");
+    expect(container.querySelector(".runtime-playback")?.textContent).toContain("Restart replay");
+    expect(container.querySelector(".runtime-compatibility > summary")?.textContent)
+      .toContain("5 normalized · 0 diagnostics");
+    act(() => container.querySelector<HTMLElement>(".runtime-compatibility > summary")!.click());
+    expect(container.querySelector(".runtime-compatibility")?.textContent).toContain("DOCA_ARGUS");
+    expect(container.querySelector(".runtime-compatibility")?.textContent).toContain("product 1.4.0");
     expect(container.querySelectorAll(".runtime-map-edges path.active").length).toBeGreaterThan(0);
     act(() => container.querySelectorAll<HTMLButtonElement>(".runtime-sequence li button")[1]!.click());
     expect(container.querySelector(".runtime-data-pulse")).not.toBeNull();
     expect(container.querySelectorAll(".runtime-data-pulse").length).toBeLessThanOrEqual(2);
+    act(() => [...container.querySelectorAll<HTMLButtonElement>(".runtime-playback button")]
+      .find((button) => button.textContent === "Restart replay")!.click());
+    expect(container.querySelector(".runtime-sequence li")?.classList.contains("active")).toBe(true);
     expect(container.querySelector(".controls")).toBeNull();
     expect(container.querySelector(".details")).toBeNull();
     act(() => container.querySelector<HTMLButtonElement>(".runtime-evidence button")!.click());
@@ -152,6 +163,28 @@ describe("progressive topology interaction", () => {
     expect(container.querySelectorAll(".runtime-ledger-list > button")).toHaveLength(5);
     act(() => container.querySelector<HTMLButtonElement>(".runtime-ledger-list > button")!.click());
     expect(container.querySelector(".runtime-ledger")).toBeNull();
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("presents the observed working directory as primary process evidence", async () => {
+    const capture = normalizeArgusJsonLines(
+      readFileSync("fixtures/argus/process-network-sequence.jsonl", "utf8"),
+      { synthetic: true },
+    );
+    capture.observations[1]!.process!.currentWorkingDirectory = "/sys/fs/cgroup";
+    const graph = buildRuntimeGraph(capture);
+    const process = graph.nodes.find((node) => node.kind === "process_execution")!;
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => root.render(createElement(RuntimeDossier, { graph, node: process })));
+
+    expect(container.querySelector(".runtime-dossier")?.textContent)
+      .toContain("current working directory");
+    expect(container.querySelector(".runtime-dossier")?.textContent).toContain("/sys/fs/cgroup");
 
     act(() => root.unmount());
     container.remove();

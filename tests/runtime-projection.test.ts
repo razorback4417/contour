@@ -7,6 +7,7 @@ import {
   highlightRuntimeEvidence,
   projectRuntimeFocus,
   runtimeNodeInterpretation,
+  runtimeProcessMatches,
   runtimeRelationshipLabel,
   runtimeRelationships,
   runtimeTrafficSample,
@@ -15,7 +16,7 @@ import {
 import {
   activityGroupLabel,
   groupRuntimeActivity,
-} from "../src/ui/RuntimeWorkspace";
+} from "../src/ui/runtime-activity";
 
 const fixture = readFileSync(
   new URL("../fixtures/argus/process-network-sequence.jsonl", import.meta.url),
@@ -62,6 +63,16 @@ describe("runtime UI projection", () => {
       && projection.nodes.some((node) => node.id === edge.target))).toBe(true);
     expect(projection.hiddenFiles).toBe(0);
     expect(projection.hiddenConnections).toBe(0);
+  });
+
+  it("finds executions through process facts and connected evidence", () => {
+    const process = defaultRuntimeFocus(graph)!;
+
+    expect(runtimeProcessMatches(graph, process, "python3")).toBe(true);
+    expect(runtimeProcessMatches(graph, process, "synthetic-container-a")).toBe(true);
+    expect(runtimeProcessMatches(graph, process, "/models/model.safetensors")).toBe(true);
+    expect(runtimeProcessMatches(graph, process, "198.51.100.20")).toBe(true);
+    expect(runtimeProcessMatches(graph, process, "not-present")).toBe(false);
   });
 
   it("highlights only topology entities backed by the active observation", () => {

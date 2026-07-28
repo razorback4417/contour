@@ -36,6 +36,7 @@ export interface RuntimeProcess {
   userId?: number;
   groupId?: number;
   containerId?: string;
+  currentWorkingDirectory?: string;
   pidNamespace?: string;
   mountNamespace?: string;
   networkNamespace?: string;

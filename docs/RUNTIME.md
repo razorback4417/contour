@@ -2,8 +2,8 @@
 
 Argus produces a changing record of workload behavior. That record is not part
 of the physical `contour.topology/v2` snapshot. Contour normalizes runtime
-records into a separate `contour.runtime/v1` capture and links the two views
-only when they share explicit host or interface evidence.
+records into a separate `contour.runtime/v1` capture. The two workspaces remain
+separate; any future correlation must use explicit host or interface evidence.
 
 ## Ownership
 
@@ -34,22 +34,23 @@ Every observation declares an evidence basis:
 - `observed`: directly represented by a source record;
 - `inferred`: produced by a named deterministic correlation rule.
 
-The first Argus adapter and its fixtures remain synthetic until compared with
-an authorized hardware capture. Hardware validation may change the adapter,
-but it must not require changing the runtime contract or physical topology
-schema.
+Committed fixtures and the built-in example are synthetic. Imported and live
+captures are labeled at the input boundary. Compatibility is specific to the
+observed product/schema versions and normalization diagnostics; it is not a
+blanket claim about every Argus deployment.
 
 ## Argus adapter status
 
 `src/runtime/argus.ts` accepts one JSON object per line and maps the documented
-process, container, file-descriptor, and TCP attribute names. It preserves
-unknown fields only inside the raw record and emits diagnostics for malformed
-or unsupported activities.
+process, container, file-descriptor, and TCP attribute names. Process evidence
+includes the current working directory and PID, mount, and network namespaces
+when supplied. It preserves unknown fields only inside the raw record and emits
+diagnostics for malformed or unsupported activities.
 
-The adapter does not claim that JSONL is Argus's production transport framing.
-The caller, rather than an input field, assigns the `synthetic` trust label. A
-real capture must verify framing, activity-detail nesting, and product/schema
-versions before hardware compatibility is claimed.
+The adapter does not claim that JSONL is Argus's transport framing. The caller,
+rather than an input field, assigns the `synthetic` trust label. The
+compatibility panel makes observed product/schema versions and unsupported
+records visible without changing the runtime contract.
 
 ## Temporal graph
 
@@ -97,8 +98,10 @@ offline file import.
 
 The ClickHouse mode refreshes its bounded window every two seconds. The UI
 groups repeated executions behind a searchable process picker, follows the
-latest evidence by default, and can replay the focused execution. Choosing
-replay or an event freezes that evidence window; **Earlier window** pages
+latest evidence by default, and can replay the focused execution. Execution
+search includes connected container, file, connection, interface, and endpoint
+facts. Choosing replay or an event freezes that evidence window; replay can be
+restarted deterministically. **Earlier window** pages
 through retained ClickHouse history, **Newer** returns through windows already
 visited in the browser, and a UTC timestamp can jump to the bounded page ending
 before that time. **Live** explicitly resumes ingestion. The browser treats
@@ -106,9 +109,11 @@ storage cursors as opaque. If the pinned execution leaves the bounded live
 window, Contour pauses instead of silently switching to a different process.
 The **Evidence ledger** lists the normalized observations in the current bounded
 window, not the entire retained ClickHouse table. It initially renders 100 rows,
-supports process/PID/path/address/activity search and kind filtering, and loads
-additional rows on demand. Selecting a row returns to the associated execution
-when that process identity was reconstructable.
+supports process, PID, container, namespace, path, address, and activity search
+plus kind filtering, and loads additional rows on demand. Selecting a row
+returns to the associated execution when that process identity was
+reconstructable. The compatibility panel inventories observed Argus
+product/schema versions and groups normalization diagnostics by code.
 Animated pulses travel only across nodes and edges whose evidence contains the
 active normalized observation. For repeated TCP observations, pulse size reflects
 the increase from the prior byte-counter sample for that connection. The first

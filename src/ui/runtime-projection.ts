@@ -261,6 +261,36 @@ export function runtimeRelationships(
     left.edge.kind.localeCompare(right.edge.kind) || left.peer.id.localeCompare(right.peer.id));
 }
 
+export function runtimeProcessMatches(
+  graph: RuntimeGraph,
+  process: RuntimeGraphNode,
+  query: string,
+): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  const values: unknown[] = [
+    process.label,
+    process.id,
+    ...Object.values(process.facts),
+  ];
+  for (const relationship of runtimeRelationships(graph, process.id)) {
+    values.push(
+      relationship.peer.label,
+      relationship.peer.id,
+      ...Object.values(relationship.peer.facts),
+    );
+    if (relationship.peer.kind !== "tcp_connection") continue;
+    for (const connectionRelationship of runtimeRelationships(graph, relationship.peer.id)) {
+      values.push(
+        connectionRelationship.peer.label,
+        connectionRelationship.peer.id,
+        ...Object.values(connectionRelationship.peer.facts),
+      );
+    }
+  }
+  return values.some((value) => String(value ?? "").toLowerCase().includes(needle));
+}
+
 export function runtimeRelationshipLabel(
   kind: RuntimeEdgeKind,
   direction: RuntimeRelationship["direction"],

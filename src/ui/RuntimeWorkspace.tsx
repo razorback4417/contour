@@ -10,13 +10,23 @@ import {
   defaultRuntimeFocus,
   highlightRuntimeEvidence,
   projectRuntimeFocus,
-  runtimeNodeInterpretation,
-  runtimeRelationshipLabel,
-  runtimeRelationships,
+  runtimeProcessMatches,
   runtimeTrafficSample,
   summarizeRuntimeGraph,
   type RuntimeFocusProjection,
 } from "./runtime-projection";
+import { RuntimeDossier } from "./RuntimeDossier";
+import {
+  activityGroupLabel,
+  formatRuntimeClock,
+  groupRuntimeActivity,
+  runtimeActivityTarget,
+  type RuntimeActivityGroup,
+} from "./runtime-activity";
+import {
+  RuntimeCompatibilityPanel,
+  RuntimeEvidenceLedger,
+} from "./RuntimeEvidence";
 
 const nodeWidth = 196;
 const nodeHeight = 52;
@@ -31,15 +41,6 @@ interface PositionedNode {
   node: RuntimeGraphNode;
   x: number;
   y: number;
-}
-
-export interface RuntimeActivityGroup {
-  observation: RuntimeObservation;
-  endIndex: number;
-  count: number;
-  targets: number;
-  category: "container" | "file" | "network" | "process";
-  kinds: Set<RuntimeObservation["kind"]>;
 }
 
 interface RuntimeProcessGroup {
@@ -97,15 +98,9 @@ export function RuntimeWorkspace({
   const [processQuery, setProcessQuery] = useState("");
   const [ledgerOpen, setLedgerOpen] = useState(false);
   const filteredProcessGroups = useMemo(() => {
-    const query = processQuery.trim().toLowerCase();
-    return query
-      ? processGroups.filter((group) =>
-        group.label.toLowerCase().includes(query)
-        || group.executions.some((node) =>
-          String(node.facts.processId ?? "").includes(query)
-          || String(node.facts.executablePath ?? "").toLowerCase().includes(query)))
-      : processGroups;
-  }, [processGroups, processQuery]);
+    return processGroups.filter((group) =>
+      group.executions.some((node) => runtimeProcessMatches(graph, node, processQuery)));
+  }, [graph, processGroups, processQuery]);
   const processPicker = useRef<HTMLDetailsElement>(null);
   const windowPicker = useRef<HTMLDetailsElement>(null);
   const [jumpTime, setJumpTime] = useState(() => formatDateTimeInput(capture.endedAt));
@@ -241,7 +236,7 @@ export function RuntimeWorkspace({
           <div className="runtime-process-menu">
             <input
               aria-label="Filter executions"
-              placeholder="Filter by process, PID, or executable"
+              placeholder="Filter process, container, path, or endpoint"
               value={processQuery}
               onChange={(event) => setProcessQuery(event.target.value)}
             />
@@ -251,7 +246,8 @@ export function RuntimeWorkspace({
             </header>
             <div>
               {filteredProcessGroups.slice(0, 40).map((group) => {
-                const process = group.executions[0];
+                const process = group.executions.find((execution) =>
+                  runtimeProcessMatches(graph, execution, processQuery)) ?? group.executions[0];
                 return <button
                   type="button"
                   className={group.executions.some((node) => node.id === focusId) ? "active" : ""}
@@ -265,7 +261,10 @@ export function RuntimeWorkspace({
                       {" · "}{group.records} records
                     </small>
                   </span>
-                  <code>latest PID {String(process.facts.processId ?? "unknown")}</code>
+                  <code>
+                    {processQuery.trim() ? "matching" : "latest"} PID{" "}
+                    {String(process.facts.processId ?? "unknown")}
+                  </code>
                 </button>;
               })}
             </div>
@@ -279,7 +278,7 @@ export function RuntimeWorkspace({
         <summary>
           <span>
             <label>OBSERVATION WINDOW</label>
-            <b>{formatClock(capture.startedAt)}–{formatClock(capture.endedAt)}</b>
+            <b>{formatRuntimeClock(capture.startedAt)}–{formatRuntimeClock(capture.endedAt)}</b>
             <small>
               {formatWindow(capture.startedAt, capture.endedAt)}
               {" · "}{activityGroups.length} activity episodes
@@ -390,6 +389,13 @@ export function RuntimeWorkspace({
               setPlayhead(0);
             }}
           >Replay window</button>}
+          {playback !== "live" && <button
+            type="button"
+            onClick={() => {
+              setPlayhead(0);
+              choosePlayback("replay");
+            }}
+          >Restart replay</button>}
         </div>
       </header>
       <ol>
@@ -412,7 +418,7 @@ export function RuntimeWorkspace({
               <span>
                 {group.count > 1
                   ? `${group.targets} ${group.targets === 1 ? "target" : "targets"} in this burst`
-                  : activityTarget(observation)}
+                  : runtimeActivityTarget(observation)}
               </span>
               {traffic && <small>{traffic.label}</small>}
             </button>
@@ -438,112 +444,10 @@ export function RuntimeWorkspace({
       </button>
       <span>
         {summary.inferredEdges > 0 ? `${summary.inferredEdges} inferred edges` : "direct edges only"}
-        {" · "}{graph.diagnostics.length} records preserved as diagnostics
+        {" · "}{graph.diagnostics.length} total diagnostics
       </span>
+      <RuntimeCompatibilityPanel capture={capture}/>
     </footer>
-  </div>;
-}
-
-function RuntimeEvidenceLedger({
-  capture,
-  onClose,
-  onInspect,
-}: {
-  capture: RuntimeCapture;
-  onClose: () => void;
-  onInspect: (observation: RuntimeObservation) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const [kind, setKind] = useState("all");
-  const [limit, setLimit] = useState(100);
-  const kinds = useMemo(
-    () => [...new Set(capture.observations.map((observation) => observation.kind))].sort(),
-    [capture],
-  );
-  const observations = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return capture.observations.filter((observation) => {
-      if (kind !== "all" && observation.kind !== kind) return false;
-      if (!needle) return true;
-      return [
-        observation.kind,
-        observation.process?.name,
-        observation.process?.processId,
-        observation.process?.executablePath,
-        observation.process?.commandLine,
-        observation.fileDescriptor?.path,
-        observation.fileDescriptor?.descriptorId,
-        observation.connection?.source.address,
-        observation.connection?.source.port,
-        observation.connection?.destination.address,
-        observation.connection?.destination.port,
-      ].some((value) => String(value ?? "").toLowerCase().includes(needle));
-    });
-  }, [capture, kind, query]);
-
-  return <div className="runtime-ledger-overlay" role="presentation" onMouseDown={(event) => {
-    if (event.target === event.currentTarget) onClose();
-  }}>
-    <section className="runtime-ledger" role="dialog" aria-modal="true" aria-labelledby="runtime-ledger-title">
-      <header>
-        <div>
-          <label className="section-label">CURRENT OBSERVATION WINDOW</label>
-          <h2 id="runtime-ledger-title">Evidence ledger</h2>
-          <p>
-            {formatClock(capture.startedAt)}–{formatClock(capture.endedAt)}
-            {" · "}{capture.observations.length} normalized observations
-          </p>
-        </div>
-        <button type="button" aria-label="Close evidence ledger" onClick={onClose}>×</button>
-      </header>
-      <div className="runtime-ledger-filters">
-        <input
-          aria-label="Search runtime evidence"
-          placeholder="Search process, PID, path, address, or activity"
-          value={query}
-          onChange={(event) => {
-            setQuery(event.target.value);
-            setLimit(100);
-          }}
-        />
-        <select value={kind} onChange={(event) => {
-          setKind(event.target.value);
-          setLimit(100);
-        }}>
-          <option value="all">All activity kinds</option>
-          {kinds.map((value) => <option key={value} value={value}>
-            {value.replaceAll("_", " ")}
-          </option>)}
-        </select>
-      </div>
-      <div className="runtime-ledger-list">
-        <header>
-          <span>TIME</span><span>ACTIVITY</span><span>EXECUTION</span><span>TARGET</span>
-        </header>
-        {observations.slice(0, limit).map((observation) => <button
-          type="button"
-          key={observation.id}
-          onClick={() => onInspect(observation)}
-        >
-          <time title={observation.observedAt}>{formatClock(observation.observedAt)}</time>
-          <span>
-            <b>{observation.kind.replaceAll("_", " ")}</b>
-            <small>{observation.basis}</small>
-          </span>
-          <span>
-            <b>{observation.process?.name ?? "no process context"}</b>
-            <small>PID {observation.process?.processId ?? "—"}</small>
-          </span>
-          <code title={activityTarget(observation)}>{activityTarget(observation)}</code>
-        </button>)}
-      </div>
-      <footer>
-        <span>Showing {Math.min(limit, observations.length)} of {observations.length} matching observations</span>
-        {limit < observations.length && <button type="button" onClick={() => setLimit((value) => value + 100)}>
-          Load 100 more
-        </button>}
-      </footer>
-    </section>
   </div>;
 }
 
@@ -656,103 +560,6 @@ function Lane({ x, width, label }: { x: number; width: number; label: string }) 
   </g>;
 }
 
-function RuntimeDossier({
-  graph,
-  node,
-}: {
-  graph: RuntimeGraph;
-  node: RuntimeGraphNode;
-}) {
-  const relationships = runtimeRelationships(graph, node.id);
-  const { primaryFacts, technicalFacts } = dossierFacts(node);
-  const interpretation = runtimeNodeInterpretation(node, relationships);
-  return <aside className="runtime-dossier">
-    <header>
-      <label className="section-label">{dossierLabel(node)}</label>
-      <span>{node.lifecycle}</span>
-      <h2>{node.label}</h2>
-      <code>{node.kind.replaceAll("_", " ")}</code>
-    </header>
-    {interpretation && <section className="runtime-interpretation">
-      <label>{interpretation.label}</label>
-      <h3>{interpretation.title}</h3>
-      <p>{interpretation.summary}</p>
-    </section>}
-    <section>
-      <h3>Key evidence</h3>
-      <dl>
-        {primaryFacts.map(([key, value]) => <div key={key}>
-          <dt>{humanizeFact(key)}</dt>
-          <dd>{String(value)}</dd>
-        </div>)}
-      </dl>
-    </section>
-    <section>
-      <h3>Connected evidence</h3>
-      <ul>
-        {relationships.slice(0, 5).map(({ edge, direction, peer }) => <li key={`${edge.id}:${direction}`}>
-          <span>{runtimeRelationshipLabel(edge.kind, direction)}</span>
-          <b>{peer.label}</b>
-          <small>{edge.basis} · {edge.evidence.length} {edge.evidence.length === 1 ? "record" : "records"}</small>
-        </li>)}
-      </ul>
-    </section>
-    {technicalFacts.length > 0 && <details className="runtime-technical-evidence">
-      <summary>Technical identifiers ({technicalFacts.length})</summary>
-      <dl>
-        {technicalFacts.map(([key, value]) => <div key={key}>
-          <dt>{humanizeFact(key)}</dt>
-          <dd>{String(value)}</dd>
-        </div>)}
-      </dl>
-    </details>}
-    <footer>
-      <span>{node.evidence.length} Argus {node.evidence.length === 1 ? "record" : "records"}</span>
-      <span>{formatSeenRange(node)}</span>
-    </footer>
-  </aside>;
-}
-
-function dossierLabel(node: RuntimeGraphNode): string {
-  const labels: Record<RuntimeGraphNode["kind"], string> = {
-    host: "OBSERVED HOST",
-    container: "CONTAINER CONTEXT",
-    process_execution: "EXECUTION SUMMARY",
-    file: "TOUCHED FILE",
-    tcp_connection: "TCP FLOW",
-    tcp_endpoint: "NETWORK ENDPOINT",
-    network_interface: "WORKLOAD INTERFACE",
-  };
-  return labels[node.kind];
-}
-
-function dossierFacts(node: RuntimeGraphNode): {
-  primaryFacts: Array<[string, string | number | boolean]>;
-  technicalFacts: Array<[string, string | number | boolean]>;
-} {
-  const facts = Object.entries(node.facts)
-    .filter(([, value]) => value !== "") as Array<[string, string | number | boolean]>;
-  const priorities: Record<RuntimeGraphNode["kind"], string[]> = {
-    host: ["hostname", "osVersion"],
-    container: ["containerId"],
-    process_execution: ["executablePath", "commandLine", "processId", "userId"],
-    file: ["mode", "descriptorType"],
-    tcp_connection: ["state", "bytesIn", "bytesOut", "firstObservedAt", "closedAt"],
-    tcp_endpoint: ["address", "port"],
-    network_interface: ["name", "addresses", "mac"],
-  };
-  const primaryKeys = new Set(priorities[node.kind]);
-  const primaryFacts = priorities[node.kind]
-    .map((key) => facts.find(([candidate]) => candidate === key))
-    .filter((fact): fact is [string, string | number | boolean] => Boolean(fact))
-    .slice(0, 5);
-  return {
-    primaryFacts,
-    technicalFacts: facts.filter(([key]) =>
-      !primaryKeys.has(key) && !(node.kind === "file" && key === "path")),
-  };
-}
-
 function positionNodes(projection: RuntimeFocusProjection): PositionedNode[] {
   const groups = {
     context: projection.nodes.filter((node) =>
@@ -855,71 +662,6 @@ function activityWindow(
     .map((group, offset) => ({ group, index: start + offset }));
 }
 
-export function groupRuntimeActivity(
-  observations: RuntimeObservation[],
-): RuntimeActivityGroup[] {
-  const groups: RuntimeActivityGroup[] = [];
-  observations.forEach((observation, index) => {
-    const previous = groups.at(-1);
-    const sameBurst = previous
-      && previous.category === activityCategory(observation)
-      && Math.abs(
-        timestampMs(previous.observation.observedAt) - timestampMs(observation.observedAt),
-      ) <= 100;
-    if (!sameBurst) {
-      groups.push({
-        observation,
-        endIndex: index,
-        count: 1,
-        targets: 1,
-        category: activityCategory(observation),
-        kinds: new Set([observation.kind]),
-      });
-      return;
-    }
-    const targets = new Set(
-      observations
-        .slice(previous.endIndex - previous.count + 1, index + 1)
-        .map(activityTarget),
-    );
-    previous.observation = observation;
-    previous.endIndex = index;
-    previous.count += 1;
-    previous.targets = targets.size;
-    previous.kinds.add(observation.kind);
-  });
-  return groups;
-}
-
-function activityCategory(
-  observation: RuntimeObservation,
-): RuntimeActivityGroup["category"] {
-  if (observation.kind.startsWith("file_")) return "file";
-  if (observation.kind.startsWith("tcp_")) return "network";
-  if (observation.kind.startsWith("container_")) return "container";
-  return "process";
-}
-
-export function activityGroupLabel(group: RuntimeActivityGroup): string {
-  if (group.kinds.size === 1) return group.observation.kind.replaceAll("_", " ");
-  const labels: Record<RuntimeActivityGroup["category"], string> = {
-    container: "container lifecycle activity",
-    file: "filesystem activity",
-    network: "TCP connection activity",
-    process: "process lifecycle activity",
-  };
-  return labels[group.category];
-}
-
-function activityTarget(observation: RuntimeObservation): string {
-  if (observation.fileDescriptor?.path) return observation.fileDescriptor.path;
-  if (observation.connection) {
-    return `${observation.connection.destination.address}:${observation.connection.destination.port}`;
-  }
-  if (observation.container?.containerId) return truncate(observation.container.containerId, 24);
-  return observation.process?.name ?? "execution";
-}
-
 function pulseRadius(bytes: number | undefined): number {
   return Math.min(5, 2.75 + Math.log10(Math.max(1, bytes ?? 0)) * 0.4);
 }
@@ -941,25 +683,12 @@ function formatOffset(start: string, value: string): string {
   return `+${stripTrailingZero((elapsed / 1_000).toFixed(2))}s`;
 }
 
-function formatClock(value: string): string {
-  return new Date(timestampMs(value)).toISOString().slice(11, 19);
-}
-
 function formatDateTimeInput(value: string): string {
   return new Date(timestampMs(value)).toISOString().slice(0, 19);
 }
 
-function formatSeenRange(node: RuntimeGraphNode): string {
-  const duration = Math.max(0, timestampMs(node.lastSeenAt) - timestampMs(node.firstSeenAt));
-  return duration === 0 ? "observed once" : `observed across ${formatWindow(node.firstSeenAt, node.lastSeenAt).replace(" window", "")}`;
-}
-
 function timestampMs(value: string): number {
   return Date.parse(value.replace(/(\.\d{3})\d+(Z|[+-]\d{2}:\d{2})$/, "$1$2"));
-}
-
-function humanizeFact(value: string): string {
-  return value.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
 }
 
 function truncate(value: string, length: number): string {

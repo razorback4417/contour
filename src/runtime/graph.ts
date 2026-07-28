@@ -77,6 +77,7 @@ export function buildRuntimeGraph(capture: RuntimeCapture): RuntimeGraph {
           createdAt: process.createdAt,
           userId: process.userId,
           groupId: process.groupId,
+          currentWorkingDirectory: process.currentWorkingDirectory,
           pidNamespace: process.pidNamespace,
           mountNamespace: process.mountNamespace,
           networkNamespace: process.networkNamespace,

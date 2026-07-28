@@ -166,6 +166,7 @@ function normalizeProcess(details: Record<string, unknown>): RuntimeProcess | un
     userId: findNumber(details, "process_real_user_id"),
     groupId: findNumber(details, "process_real_group_id"),
     containerId: findString(details, "process_container_id"),
+    currentWorkingDirectory: findString(details, "process_current_working_directory"),
     pidNamespace: findString(details, "process_pid_namespace"),
     mountNamespace: findString(details, "process_mount_points_namespace"),
     networkNamespace: findString(details, "process_network_namespace"),

@@ -1,17 +1,17 @@
 # Contour
 
-Contour is an evidence-backed topology explorer with two modes:
+Contour is an evidence-backed topology explorer with two separate workspaces:
 
-- **Physical topology** collects Linux CPU, NUMA, PCIe, GPU, NIC, RDMA, and
-  storage evidence.
-- **Runtime topology** normalizes supported NVIDIA DOCA Argus activity records
-  and reconstructs process, container, file, TCP connection, endpoint, and
-  interface relationships over time.
+| Workspace | Input | What it answers | Schema |
+| --- | --- | --- | --- |
+| **Physical topology** | Linux collectors, saved `lstopo` XML, or a Contour snapshot | How CPU, NUMA, PCIe, GPU, NIC, RDMA, and storage devices relate | `contour.topology/v2` |
+| **Runtime evidence** | Argus JSONL or bounded ClickHouse windows | How processes, containers, files, TCP connections, endpoints, and interfaces relate over time | `contour.runtime/v1` |
 
-Runtime mode can replay JSONL captures or read bounded event windows from
-ClickHouse. Contour does not log in to or install anything on the monitored
-host. The bundled Argus workflow is synthetic; compatibility with production
-Argus output still requires validation against an authorized hardware capture.
+The workspaces use separate inputs and schemas. Contour does not infer a
+physical path from runtime activity. Runtime mode can replay a capture or read
+ClickHouse without logging in to or installing anything on the monitored host.
+The bundled example is synthetic; imported and live inputs retain their own
+source label, versions, and normalization diagnostics.
 
 ![Contour I/O topology showing a selected NIC, its PCIe path, related RDMA device and interface, provenance, and verification command](.github/assets/contour-overview.png)
 
@@ -118,6 +118,8 @@ contour topology.xml
 
 ## Using the UI
 
+### Physical topology
+
 - Start with **I/O paths** or **CPU & NUMA** instead of rendering the complete graph.
 - Select a node to inspect exact facts, provenance, relationships, and a focused verification command.
 - Open a summarized I/O branch from the selected node's right panel.
@@ -127,11 +129,15 @@ contour topology.xml
 - Use the mode-aware import guide to distinguish saved topology or runtime evidence from live collection.
 - Export the canonical snapshot or current deterministic SVG from the browser.
 
-The **Runtime** view turns separate Argus events into a process-centered
+### Runtime evidence
+
+The Runtime workspace turns separate Argus events into a process-centered
 software flow. It shows container context, touched files, TCP connections,
 local interfaces, peer endpoints, and the evidence sequence behind the graph.
-Relationships are labeled as observed or inferred. If process identity is
-ambiguous, Contour reports that ambiguity instead of merging records by PID.
+Process evidence includes the current working directory and Linux namespace
+identifiers when Argus supplies them. Relationships are labeled as observed or
+inferred. If process identity is ambiguous, Contour reports that ambiguity
+instead of merging records by PID.
 
 An endpoint remains an IP and port unless an evidence source explicitly
 identifies it. Contour does not guess application or service names from an
@@ -139,9 +145,11 @@ address.
 
 Runtime captures can be replayed from JSONL or read live from bounded
 ClickHouse windows. The UI supports process search, replay, earlier and newer
-windows, UTC jumps, and a searchable evidence ledger. See
-[`docs/RUNTIME.md`](docs/RUNTIME.md) for the experimental contract, network
-topology boundary, and current adapter ownership.
+windows, UTC jumps, and a searchable evidence ledger. Search follows connected
+evidence, so a container ID, touched path, or endpoint can locate its process.
+Replay can be paused or restarted, and exported runtime JSON can be reopened
+offline. The compatibility panel reports observed Argus versions and
+normalization diagnostics for the current window.
 
 For the receiver deployment, run Contour where ClickHouse is reachable directly
 or through a tunnel to the storage environment. This does not require SSH
@@ -165,12 +173,24 @@ Edges represent observed or inferred topology facts. When sources provide it, th
 
 ```bash
 npm install
+npm run check
+```
+
+The individual validation commands are:
+
+```bash
 npm test
 npm run typecheck
 npm run build
 ```
 
-Use `npm run dev` for UI development. The durable topology contract and collector boundaries live in [`docs/SCHEMA.md`](docs/SCHEMA.md) and [`docs/COLLECTORS.md`](docs/COLLECTORS.md).
+Use `npm run dev` for UI development.
+
+Documentation is split by ownership:
+
+- [`docs/SCHEMA.md`](docs/SCHEMA.md): physical topology schema;
+- [`docs/COLLECTORS.md`](docs/COLLECTORS.md): physical Linux evidence sources;
+- [`docs/RUNTIME.md`](docs/RUNTIME.md): Argus normalization, replay, and runtime boundaries.
 
 ## Current limits
 
