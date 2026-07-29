@@ -380,6 +380,20 @@ aside section { margin-bottom: 22px; }
 .runtime-playback button { border-color: #334047; background: #11171a; color: #89979e; padding: 6px 8px; font: 8px ui-monospace, monospace; }
 .runtime-playback button.primary-playback { border-color: #52777c; background: #162225; color: #b9d4d7; }
 .runtime-playback button:disabled { color: #4e585e; cursor: default; }
+.runtime-replay-transport { display: grid; grid-template-columns: auto minmax(240px, 1fr) auto; gap: 16px; align-items: center; border-top: 1px solid #293036; background: #0d1214; padding: 10px 14px; }
+.runtime-replay-clock { display: flex; align-items: baseline; gap: 5px; min-width: 134px; color: #718086; font: 9px ui-monospace, monospace; }
+.runtime-replay-clock b { color: #b9d6d9; font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.runtime-replay-track { position: relative; height: 22px; }
+.runtime-replay-track input { position: relative; z-index: 2; width: 100%; height: 22px; margin: 0; appearance: none; background: transparent; cursor: pointer; }
+.runtime-replay-track input::-webkit-slider-runnable-track { height: 2px; background: #38555a; }
+.runtime-replay-track input::-webkit-slider-thumb { width: 9px; height: 16px; margin-top: -7px; border: 1px solid #9bd0d5; border-radius: 1px; appearance: none; background: #193035; box-shadow: 0 0 7px #6fc0c84d; }
+.runtime-replay-track input::-moz-range-track { height: 2px; background: #38555a; }
+.runtime-replay-track input::-moz-range-thumb { width: 9px; height: 16px; border: 1px solid #9bd0d5; border-radius: 1px; background: #193035; }
+.runtime-replay-markers { position: absolute; z-index: 1; top: 7px; right: 4px; left: 4px; height: 8px; pointer-events: none; }
+.runtime-replay-markers i { position: absolute; width: 1px; height: 8px; background: #82734d; transform: translateX(-.5px); }
+.runtime-replay-position { display: grid; min-width: 220px; text-align: right; }
+.runtime-replay-position b { color: #91b8bc; font: 9px ui-monospace, monospace; font-weight: 500; }
+.runtime-replay-position small { margin-top: 3px; color: #5d696f; font: 8px ui-monospace, monospace; }
 .runtime-sequence ol { display: flex; overflow-x: auto; margin: 0; border-top: 1px solid #293036; padding: 0; list-style: none; scrollbar-color: #343c42 transparent; scrollbar-width: thin; }
 .runtime-sequence li { position: relative; flex: 1 0 172px; min-width: 0; border-right: 1px solid #252c31; transition: background-color 200ms ease, box-shadow 200ms ease; }
 .runtime-sequence li.active { background: #152024; box-shadow: inset 0 2px #70b6bd; }

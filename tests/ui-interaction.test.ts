@@ -13,7 +13,10 @@ import { RuntimeWorkspace } from "../src/ui/RuntimeWorkspace";
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 describe("progressive topology interaction", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
 
   it("presents physical topology and runtime evidence as separate peer workspaces", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("Not found", { status: 404, headers: { "content-type": "text/plain" } })));
@@ -70,6 +73,7 @@ describe("progressive topology interaction", () => {
   });
 
   it("replays a synthetic runtime window and highlights selected activity", async () => {
+    vi.useFakeTimers();
     vi.stubGlobal("fetch", vi.fn(async () => new Response("Not found", { status: 404, headers: { "content-type": "text/plain" } })));
     const container = document.createElement("div");
     document.body.append(container);
@@ -92,6 +96,15 @@ describe("progressive topology interaction", () => {
     expect(container.querySelector(".runtime-sequence > header .runtime-active-event")).not.toBeNull();
     expect(container.querySelector(".runtime-playback-state")?.textContent)
       .toContain("Replay playing");
+    const initialClock = container.querySelector(".runtime-replay-clock")?.textContent;
+    expect(initialClock).toMatch(/00:00\.000\s*\/\s*00:04\.000/);
+    expect(container.querySelector(".runtime-replay-position")?.textContent)
+      .toContain("events");
+    expect(container.querySelector(".runtime-replay-transport")?.textContent)
+      .toContain("Pulses appear when an event has a mapped data path");
+    act(() => vi.advanceTimersByTime(250));
+    expect(container.querySelector(".runtime-replay-clock")?.textContent)
+      .not.toBe(initialClock);
     expect(container.querySelector(".runtime-playback")?.textContent).toContain("Pause replay");
     expect(container.querySelector(".runtime-playback")?.textContent).toContain("Restart replay");
     act(() => [...container.querySelectorAll<HTMLButtonElement>(".runtime-playback button")]
@@ -103,12 +116,66 @@ describe("progressive topology interaction", () => {
       .find((button) => button.textContent === "Play replay")!.click());
     expect(container.querySelector(".runtime-playback-state")?.textContent)
       .toContain("Replay playing");
+    const scrubber = container.querySelector<HTMLInputElement>(
+      '[aria-label="Scrub replay timeline"]',
+    )!;
+    const valueSetter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!;
+    act(() => {
+      valueSetter.call(scrubber, "3000");
+      scrubber.dispatchEvent(new Event("input", { bubbles: true }));
+      scrubber.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(container.querySelector(".runtime-replay-clock")?.textContent)
+      .toMatch(/00:03\.000\s*\/\s*00:04\.000/);
+    expect(container.querySelector(".runtime-playback-state")?.textContent)
+      .toContain("Replay paused");
     expect(container.querySelectorAll(".runtime-map-edges path.active").length).toBeGreaterThan(0);
     act(() => container.querySelectorAll<HTMLButtonElement>(".runtime-sequence li button")[1]!.click());
     expect(container.querySelector(".runtime-data-pulse")).not.toBeNull();
     act(() => [...container.querySelectorAll<HTMLButtonElement>(".runtime-playback button")]
       .find((button) => button.textContent === "Restart replay")!.click());
-    expect(container.querySelector(".runtime-sequence li")?.classList.contains("active")).toBe(true);
+    expect(container.querySelector(".runtime-replay-clock")?.textContent)
+      .toMatch(/00:00\.000\s*\/\s*00:04\.000/);
+    expect(container.querySelector(".runtime-replay-position")?.textContent)
+      .toContain("events ahead");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("keeps a one-event replay visibly moving through its evidence window", async () => {
+    vi.useFakeTimers();
+    const source = normalizeArgusJsonLines(
+      readFileSync("fixtures/argus/process-network-sequence.jsonl", "utf8"),
+      { synthetic: true },
+    );
+    const observation = source.observations.find((item) =>
+      item.kind === "process_started")!;
+    const capture = {
+      ...source,
+      captureId: `${source.captureId}-single-event`,
+      observations: [observation],
+      startedAt: observation.observedAt,
+      endedAt: new Date(Date.parse(observation.observedAt) + 2_000).toISOString(),
+    };
+    const graph = buildRuntimeGraph(capture);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => root.render(createElement(RuntimeWorkspace, {
+      capture,
+      graph,
+    })));
+
+    expect(container.querySelector(".runtime-replay-position")?.textContent)
+      .toContain("Event 1 of 1");
+    const initialClock = container.querySelector(".runtime-replay-clock")?.textContent;
+    act(() => vi.advanceTimersByTime(500));
+    expect(container.querySelector(".runtime-replay-clock")?.textContent)
+      .not.toBe(initialClock);
 
     act(() => root.unmount());
     container.remove();

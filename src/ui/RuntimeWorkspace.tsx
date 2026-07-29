@@ -126,11 +126,31 @@ export function RuntimeWorkspace({
   const [controlPending, startControlTransition] = useTransition();
   const previousCaptureId = useRef(capture.captureId);
   const [evidenceUpdated, setEvidenceUpdated] = useState(false);
-  const [playhead, setPlayhead] = useState(0);
-  const activeIndex = Math.min(playhead, Math.max(0, activityGroups.length - 1));
+  const replayDurationMs = Math.max(
+    0,
+    timestampMs(capture.endedAt) - timestampMs(capture.startedAt),
+  );
+  const activityOffsets = useMemo(() => activityGroups.map((group) =>
+    Math.max(
+      0,
+      Math.min(
+        replayDurationMs,
+        timestampMs(group.observation.observedAt) - timestampMs(capture.startedAt),
+      ),
+    )), [activityGroups, capture.startedAt, replayDurationMs]);
+  const replayElapsedRef = useRef(live && following ? replayDurationMs : 0);
+  const [replayElapsedMs, setReplayElapsedMs] = useState(
+    live && following ? replayDurationMs : 0,
+  );
+  const [pulseEpoch, setPulseEpoch] = useState(0);
+  const activeIndex = playback === "live" || playback === "live-paused"
+    ? Math.max(-1, activityGroups.length - 1)
+    : lastIndexAtOrBefore(activityOffsets, replayElapsedMs);
   const activeGroup = activityGroups[activeIndex];
   const activeObservation = activeGroup?.observation;
-  const activeTraffic = runtimeTrafficSample(focusedActivity, activeGroup?.endIndex ?? 0);
+  const activeTraffic = activeGroup
+    ? runtimeTrafficSample(focusedActivity, activeGroup.endIndex)
+    : undefined;
   const visibleActivity = useMemo(
     () => activityWindow(activityGroups, activeIndex, 8),
     [activeIndex, activityGroups],
@@ -149,7 +169,8 @@ export function RuntimeWorkspace({
   }, [focusId, onFocusChange]);
 
   useEffect(() => {
-    setPlayhead(playback === "live" ? Math.max(0, activityGroups.length - 1) : 0);
+    seekReplay(playback === "live" ? replayDurationMs : 0);
+    setPulseEpoch((current) => current + 1);
   }, [focusId]);
 
   useEffect(() => {
@@ -166,16 +187,26 @@ export function RuntimeWorkspace({
 
   useEffect(() => {
     if (playback !== "live") return;
-    setPlayhead(Math.max(0, activityGroups.length - 1));
-  }, [activityGroups.length, capture.captureId, playback]);
+    seekReplay(replayDurationMs);
+  }, [capture.captureId, playback, replayDurationMs]);
 
   useEffect(() => {
-    if (playback !== "replay" || activityGroups.length < 2) return;
+    if (playback !== "replay" || replayDurationMs <= 0) return;
+    let lastTick = Date.now();
     const timer = window.setInterval(() => {
-      setPlayhead((current) => (current + 1) % activityGroups.length);
-    }, 980);
+      const now = Date.now();
+      const delta = Math.max(0, now - lastTick);
+      lastTick = now;
+      let next = replayElapsedRef.current + delta;
+      if (next >= replayDurationMs) {
+        next %= replayDurationMs;
+        setPulseEpoch((current) => current + 1);
+      }
+      replayElapsedRef.current = next;
+      setReplayElapsedMs(next);
+    }, 50);
     return () => window.clearInterval(timer);
-  }, [activityGroups.length, playback]);
+  }, [playback, replayDurationMs]);
 
   useEffect(() => {
     const dismissOpenPicker = (event: globalThis.PointerEvent) => {
@@ -207,9 +238,16 @@ export function RuntimeWorkspace({
 
   function choosePlayback(next: "live" | "live-paused" | "replay" | "paused") {
     setPlayback(next);
+    if (next === "live") seekReplay(replayDurationMs);
     if (live && onFollowingChange) {
       startControlTransition(() => onFollowingChange(next === "live"));
     }
+  }
+
+  function seekReplay(value: number): void {
+    const bounded = Math.max(0, Math.min(replayDurationMs, value));
+    replayElapsedRef.current = bounded;
+    setReplayElapsedMs(bounded);
   }
 
   async function resumeLive(): Promise<void> {
@@ -405,6 +443,7 @@ export function RuntimeWorkspace({
           selectedNodeId={selectedNode.id}
           activeObservation={activeObservation}
           activeBytes={activeTraffic?.bytes}
+          pulseEpoch={pulseEpoch}
           onSelect={setRequestedSelectionId}
         />
         <div className="runtime-map-key">
@@ -429,7 +468,7 @@ export function RuntimeWorkspace({
           <label className="section-label">EXECUTION ACTIVITY</label>
           <h2>{projection.focus.label}</h2>
         </div>
-        {activeObservation && <div className="runtime-active-event" key={activeObservation.id}>
+        {activeObservation ? <div className="runtime-active-event" key={activeObservation.id}>
           <span>
             {playback === "live"
               ? "LATEST"
@@ -445,6 +484,10 @@ export function RuntimeWorkspace({
             {formatOffset(capture.startedAt, activeObservation.observedAt)}
             {activeTraffic ? ` · ${activeTraffic.label}` : ""}
           </small>
+        </div> : (playback === "replay" || playback === "paused") && <div className="runtime-active-event">
+          <span>{playback === "replay" ? "REPLAYING" : "PAUSED"}</span>
+          <b>Before first focused event</b>
+          <small>{formatReplayClock(replayElapsedMs)}</small>
         </div>}
         <div
           className="runtime-playback"
@@ -502,7 +545,8 @@ export function RuntimeWorkspace({
               type="button"
               disabled={controlBusy}
               onClick={() => {
-                setPlayhead(0);
+                seekReplay(0);
+                setPulseEpoch((current) => current + 1);
                 choosePlayback("replay");
               }}
             >Replay from start</button>}
@@ -510,7 +554,8 @@ export function RuntimeWorkspace({
               type="button"
               disabled={controlBusy}
               onClick={() => {
-                setPlayhead(0);
+                seekReplay(0);
+                setPulseEpoch((current) => current + 1);
                 choosePlayback("replay");
               }}
             >Restart replay</button>}
@@ -522,6 +567,44 @@ export function RuntimeWorkspace({
           </span>
         </div>
       </header>
+      {(playback === "replay" || playback === "paused") && <div
+        className="runtime-replay-transport"
+        aria-label="Replay timeline"
+      >
+        <div className="runtime-replay-clock">
+          <b>{formatReplayClock(replayElapsedMs)}</b>
+          <span>/ {formatReplayClock(replayDurationMs)}</span>
+        </div>
+        <div className="runtime-replay-track">
+          <input
+            type="range"
+            min="0"
+            max={Math.max(1, replayDurationMs)}
+            step="1"
+            value={Math.min(replayElapsedMs, Math.max(1, replayDurationMs))}
+            aria-label="Scrub replay timeline"
+            onChange={(event) => {
+              seekReplay(Number(event.target.value));
+              choosePlayback("paused");
+            }}
+          />
+          <div className="runtime-replay-markers" aria-hidden="true">
+            {activityOffsets.map((offset, index) => <i
+              key={`${activityGroups[index]?.observation.id}:${index}`}
+              style={{ left: `${replayDurationMs > 0 ? offset / replayDurationMs * 100 : 0}%` }}
+            />)}
+          </div>
+        </div>
+        <div className="runtime-replay-position">
+          <b>{activeIndex >= 0
+            ? `Event ${activeIndex + 1} of ${activityGroups.length}`
+            : `${activityGroups.length} ${activityGroups.length === 1 ? "event" : "events"} ahead`}
+          </b>
+          <small>
+            Pulses appear when an event has a mapped data path.
+          </small>
+        </div>
+      </div>}
       <ol>
         {visibleActivity.map(({ group, index }) => {
           const traffic = runtimeTrafficSample(focusedActivity, group.endIndex);
@@ -531,7 +614,7 @@ export function RuntimeWorkspace({
             key={`${observation.id}:${group.count}`}
           >
             <button type="button" onClick={() => {
-              setPlayhead(index);
+              seekReplay(activityOffsets[index] ?? 0);
               choosePlayback("paused");
             }}>
               <time>{formatOffset(capture.startedAt, observation.observedAt)}</time>
@@ -580,12 +663,14 @@ function TopologyMap({
   selectedNodeId,
   activeObservation,
   activeBytes,
+  pulseEpoch,
   onSelect,
 }: {
   projection: RuntimeFocusProjection;
   selectedNodeId: string;
   activeObservation?: RuntimeObservation;
   activeBytes?: number;
+  pulseEpoch: number;
   onSelect: (id: string) => void;
 }) {
   const positioned = useMemo(() => positionNodes(projection), [projection]);
@@ -630,7 +715,7 @@ function TopologyMap({
           />
           {active && pulseEdgeIds.has(edge.id) && <circle
             className="runtime-data-pulse"
-            key={`${activeObservation?.id}:${edge.id}`}
+            key={`${pulseEpoch}:${activeObservation?.id}:${edge.id}`}
             r={pulseRadius(activeBytes)}
             opacity="0"
           >
@@ -786,6 +871,13 @@ function activityWindow(
     .map((group, offset) => ({ group, index: start + offset }));
 }
 
+function lastIndexAtOrBefore(offsets: number[], elapsed: number): number {
+  for (let index = offsets.length - 1; index >= 0; index -= 1) {
+    if (offsets[index] <= elapsed) return index;
+  }
+  return -1;
+}
+
 function pulseRadius(bytes: number | undefined): number {
   return Math.min(5, 2.75 + Math.log10(Math.max(1, bytes ?? 0)) * 0.4);
 }
@@ -805,6 +897,14 @@ function formatOffset(start: string, value: string): string {
   const elapsed = Math.max(0, timestampMs(value) - timestampMs(start));
   if (elapsed < 1_000) return `+${Math.round(elapsed)}ms`;
   return `+${stripTrailingZero((elapsed / 1_000).toFixed(2))}s`;
+}
+
+function formatReplayClock(value: number): string {
+  const elapsed = Math.max(0, Math.round(value));
+  const minutes = Math.floor(elapsed / 60_000);
+  const seconds = Math.floor((elapsed % 60_000) / 1_000);
+  const milliseconds = elapsed % 1_000;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(milliseconds).padStart(3, "0")}`;
 }
 
 function formatDateTimeInput(value: string): string {
