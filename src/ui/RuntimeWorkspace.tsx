@@ -124,6 +124,8 @@ export function RuntimeWorkspace({
     live && following ? "live" : "replay",
   );
   const [controlPending, startControlTransition] = useTransition();
+  const previousCaptureId = useRef(capture.captureId);
+  const [evidenceUpdated, setEvidenceUpdated] = useState(false);
   const [playhead, setPlayhead] = useState(0);
   const activeIndex = Math.min(playhead, Math.max(0, activityGroups.length - 1));
   const activeGroup = activityGroups[activeIndex];
@@ -136,6 +138,9 @@ export function RuntimeWorkspace({
 
   useEffect(() => {
     if (live && following) setPlayback("live");
+    else if (live) {
+      setPlayback((current) => current === "live" ? "live-paused" : current);
+    }
     else if (!live) setPlayback("replay");
   }, [following, live]);
 
@@ -150,6 +155,14 @@ export function RuntimeWorkspace({
   useEffect(() => {
     setJumpTime(formatDateTimeInput(capture.endedAt));
   }, [capture.captureId, capture.endedAt]);
+
+  useEffect(() => {
+    if (previousCaptureId.current === capture.captureId) return;
+    previousCaptureId.current = capture.captureId;
+    setEvidenceUpdated(true);
+    const timer = window.setTimeout(() => setEvidenceUpdated(false), 1_400);
+    return () => window.clearTimeout(timer);
+  }, [capture.captureId]);
 
   useEffect(() => {
     if (playback !== "live") return;
@@ -217,30 +230,56 @@ export function RuntimeWorkspace({
               ? "Starting replay…"
               : "Updating view…"
           : undefined;
+  const activelyFollowing = live && following && !stale && !synthetic;
+  const feedStatusClass = synthetic
+    ? "synthetic"
+    : stale
+      ? "stale"
+      : live && !following
+        ? "paused"
+        : live
+          ? "live"
+          : "capture";
+  const feedStatusLabel = synthetic
+    ? "SYNTHETIC REPLAY"
+    : stale
+      ? "FEED STALE"
+      : live && !following
+        ? "LIVE FEED · VIEW PAUSED"
+        : live
+          ? "LIVE · FOLLOWING"
+          : "CAPTURE REPLAY";
+  const feedStatusDetail = synthetic
+    ? "Playing a saved synthetic evidence window."
+    : stale
+      ? "Showing the last good evidence window."
+      : live && !following
+        ? "Window frozen. New events will not move this view."
+        : live
+          ? evidenceUpdated
+            ? `Evidence window updated · latest ${formatRuntimeClock(capture.endedAt)} UTC`
+            : `Watching Argus · latest ${formatRuntimeClock(capture.endedAt)} UTC`
+          : "Playing a saved evidence capture.";
 
   return <div className="runtime-workspace">
     <header className="runtime-heading">
       <div>
         <label className="section-label">ARGUS RUNTIME TOPOLOGY</label>
         <h1>Observed software paths</h1>
-        <p>
+        <p className={`runtime-window-metrics ${activelyFollowing && evidenceUpdated ? "evidence-updated" : ""}`}>
           {capture.host.hostname ?? capture.host.id}
           {" · "}{formatWindow(capture.startedAt, capture.endedAt)}
           {" · "}{processes.length} executions
           {" · "}{capture.observations.length} observations
         </p>
       </div>
-      <span className={synthetic ? "synthetic" : stale ? "stale" : "capture"}>
-        {synthetic
-          ? "SYNTHETIC REPLAY"
-          : stale
-            ? "FEED STALE · LAST GOOD WINDOW"
-            : live && !following
-              ? "LIVE FEED · VIEW PAUSED"
-              : live
-                ? "LIVE · 2S REFRESH"
-                : "CAPTURE REPLAY"}
-      </span>
+      <div className={`runtime-feed-status ${feedStatusClass} ${activelyFollowing && evidenceUpdated ? "evidence-updated" : ""}`}>
+        {activelyFollowing && <i className="runtime-live-beacon" aria-hidden="true"/>}
+        <span>
+          <b>{feedStatusLabel}</b>
+          <small aria-live="polite">{feedStatusDetail}</small>
+        </span>
+      </div>
     </header>
 
     <section className="runtime-investigation-bar" aria-label="Runtime investigation controls">

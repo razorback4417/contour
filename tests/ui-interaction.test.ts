@@ -8,6 +8,7 @@ import { normalizeArgusJsonLines } from "../src/runtime/argus";
 import { buildRuntimeGraph } from "../src/runtime/graph";
 import { runtimeBrowserWindow } from "../src/runtime/transport";
 import { RuntimeDossier } from "../src/ui/RuntimeDossier";
+import { RuntimeWorkspace } from "../src/ui/RuntimeWorkspace";
 
 const styles = readFileSync("src/ui/styles.css", "utf8");
 const runtimeWorkspaceSource = readFileSync("src/ui/RuntimeWorkspace.tsx", "utf8");
@@ -309,13 +310,16 @@ describe("progressive topology interaction", () => {
     const root = createRoot(container);
     await act(async () => root.render(createElement(App)));
 
-    expect(container.querySelector(".runtime-heading")?.textContent).toContain("LIVE · 2S REFRESH");
+    expect(container.querySelector(".runtime-feed-status")?.textContent)
+      .toContain("LIVE · FOLLOWING");
+    expect(container.querySelector(".runtime-live-beacon")).not.toBeNull();
     expect(container.querySelector(".runtime-playback-state")?.textContent)
       .toContain("Following live");
     act(() => [...container.querySelectorAll<HTMLButtonElement>(".runtime-playback button")]
       .find((button) => button.textContent === "Pause live view")!.click());
     expect(container.querySelector(".runtime-heading")?.textContent)
       .toContain("LIVE FEED · VIEW PAUSED");
+    expect(container.querySelector(".runtime-live-beacon")).toBeNull();
     expect(container.querySelector(".runtime-playback-state")?.textContent)
       .toContain("Live view paused");
     expect(container.querySelector(".runtime-playback")?.textContent)
@@ -333,8 +337,13 @@ describe("progressive topology interaction", () => {
       .every((button) => button.disabled)).toBe(true);
     expect(container.querySelector(".runtime-control-spinner")).not.toBeNull();
 
+    const updatedCapture = {
+      ...capture,
+      captureId: `${capture.captureId}-updated`,
+      endedAt: new Date(Date.parse(capture.endedAt) + 1_000).toISOString(),
+    };
     await act(async () => {
-      resolveHeldRequest(new Response(JSON.stringify(capture), {
+      resolveHeldRequest(new Response(JSON.stringify(updatedCapture), {
         headers: { "content-type": "application/json" },
       }));
       await Promise.resolve();
@@ -343,6 +352,49 @@ describe("progressive topology interaction", () => {
       .toBe("false");
     expect(container.querySelector(".runtime-playback-state")?.textContent)
       .toContain("Following live");
+    expect(container.querySelector(".runtime-feed-status")?.textContent)
+      .toContain("Evidence window updated");
+    expect(container.querySelector(".runtime-feed-status")?.classList)
+      .toContain("evidence-updated");
+    expect(container.querySelector(".runtime-window-metrics")?.classList)
+      .toContain("evidence-updated");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("keeps the live header and playback controls in the same externally paused state", async () => {
+    const capture = normalizeArgusJsonLines(
+      readFileSync("fixtures/argus/process-network-sequence.jsonl", "utf8"),
+      { synthetic: false, source: "clickhouse:otel.otel_logs" },
+    );
+    const graph = buildRuntimeGraph(capture);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => root.render(createElement(RuntimeWorkspace, {
+      capture,
+      graph,
+      live: true,
+      following: true,
+    })));
+    expect(container.querySelector(".runtime-feed-status")?.textContent)
+      .toContain("LIVE · FOLLOWING");
+    expect(container.querySelector(".runtime-playback-state")?.textContent)
+      .toContain("Following live");
+
+    await act(async () => root.render(createElement(RuntimeWorkspace, {
+      capture,
+      graph,
+      live: true,
+      following: false,
+    })));
+    expect(container.querySelector(".runtime-feed-status")?.textContent)
+      .toContain("LIVE FEED · VIEW PAUSED");
+    expect(container.querySelector(".runtime-playback-state")?.textContent)
+      .toContain("Live view paused");
+    expect(container.querySelector(".runtime-live-beacon")).toBeNull();
 
     act(() => root.unmount());
     container.remove();
