@@ -334,6 +334,8 @@ aside section { margin-bottom: 22px; }
 .runtime-dossier > header > span { position: absolute; top: 0; right: 0; color: #738189; font: 8px ui-monospace, monospace; text-transform: uppercase; }
 .runtime-dossier h2 { overflow-wrap: anywhere; margin: 4px 0 6px; color: #eef1f2; font-size: 16px; font-weight: 540; line-height: 1.35; }
 .runtime-dossier > header code { color: #657078; font: 9px ui-monospace, monospace; }
+.runtime-json-open { position: absolute; right: 0; bottom: 13px; border: 1px solid #344149; background: transparent; color: #91a3aa; padding: 5px 7px; font: 8px ui-monospace, monospace; }
+.runtime-json-open:hover { border-color: #6d9599; color: #d2dcdf; }
 .runtime-dossier section { margin: 16px 0 0; }
 .runtime-dossier h3 { margin: 0 0 8px; color: #69747b; font: 9px ui-monospace, monospace; font-weight: 400; letter-spacing: .09em; text-transform: uppercase; }
 .runtime-interpretation { border: 1px solid #314348; border-left: 2px solid #72aeb4; background: #111a1d; padding: 10px; }
@@ -365,6 +367,7 @@ aside section { margin-bottom: 22px; }
 .runtime-playback-state { display: grid; gap: 3px; text-align: right; }
 .runtime-playback-state b { color: #8bc4c9; font: 9px ui-monospace, monospace; font-weight: 500; letter-spacing: .05em; }
 .runtime-playback-state small { color: #66767d; font: 8px ui-monospace, monospace; letter-spacing: 0; }
+.runtime-control-spinner { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border: 1px solid #45666b; border-top-color: #a8d9dd; border-radius: 50%; vertical-align: -1px; animation: runtime-spin 700ms linear infinite; }
 .runtime-playback-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
 .runtime-playback button { border-color: #334047; background: #11171a; color: #89979e; padding: 6px 8px; font: 8px ui-monospace, monospace; }
 .runtime-playback button.primary-playback { border-color: #52777c; background: #162225; color: #b9d4d7; }
@@ -416,8 +419,23 @@ aside section { margin-bottom: 22px; }
 .runtime-ledger > footer { display: flex; justify-content: space-between; align-items: center; color: #657078; padding-top: 11px; font: 9px ui-monospace, monospace; }
 .runtime-ledger > footer button { border: 1px solid #344149; background: transparent; color: #91a3aa; padding: 6px 8px; font: 8px ui-monospace, monospace; }
 
+.runtime-json-overlay { position: fixed; z-index: 110; inset: 0; display: grid; place-items: center; background: #060809df; padding: 24px; }
+.runtime-json-dialog { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; width: min(920px, calc(100vw - 48px)); height: min(760px, calc(100vh - 48px)); border: 1px solid #3a444a; background: #101416; box-shadow: 0 24px 80px #000d; padding: 18px; }
+.runtime-json-dialog > header { display: flex; justify-content: space-between; border-bottom: 1px solid #293036; padding-bottom: 13px; }
+.runtime-json-dialog h2 { margin: 3px 0 0; color: #e1e6e8; font-size: 18px; font-weight: 520; }
+.runtime-json-dialog > header p { margin: 5px 0 0; color: #68757c; font: 9px ui-monospace, monospace; }
+.runtime-json-dialog > header button { align-self: start; border: 0; background: transparent; color: #77838a; padding: 0 3px; font-size: 22px; line-height: 1; }
+.runtime-json-dialog pre { min-height: 0; overflow: auto; margin: 12px 0; border: 1px solid #293036; background: #0b0f11; color: #aab9be; padding: 15px; font: 10px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; tab-size: 2; user-select: text; white-space: pre; }
+.runtime-json-dialog > footer { display: flex; justify-content: space-between; align-items: center; gap: 16px; color: #657078; font: 9px ui-monospace, monospace; }
+.runtime-json-copy { border: 1px solid #52777c; background: #162225; color: #b9d4d7; padding: 7px 10px; font: 8px ui-monospace, monospace; }
+
+@keyframes runtime-spin {
+  to { transform: rotate(360deg); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .runtime-data-pulse { display: none; }
+  .runtime-control-spinner { animation: none; }
 }
 
 @media (max-width: 1180px) {

@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from "react";
 import type { RuntimeGraph, RuntimeGraphNode } from "../runtime/types";
 import {
   runtimeNodeInterpretation,
@@ -12,15 +13,55 @@ export function RuntimeDossier({
   graph: RuntimeGraph;
   node: RuntimeGraphNode;
 }) {
-  const relationships = runtimeRelationships(graph, node.id);
+  const [jsonOpen, setJsonOpen] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "manual">("idle");
+  const relationships = useMemo(
+    () => runtimeRelationships(graph, node.id),
+    [graph, node.id],
+  );
   const { primaryFacts, technicalFacts } = dossierFacts(node);
   const interpretation = runtimeNodeInterpretation(node, relationships);
-  return <aside className="runtime-dossier">
+  const executionJson = useMemo(() => JSON.stringify({
+    node,
+    relationships: relationships.map(({ direction, edge, peer }) => ({
+      direction,
+      edge,
+      peer,
+    })),
+  }, null, 2), [node, relationships]);
+
+  useEffect(() => {
+    if (!jsonOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setJsonOpen(false);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [jsonOpen]);
+
+  async function copyExecutionJson(): Promise<void> {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(executionJson);
+      } else if (!copyTextFallback(executionJson)) {
+        throw new Error("Clipboard access is unavailable.");
+      }
+      setCopyStatus("copied");
+    } catch {
+      setCopyStatus("manual");
+    }
+  }
+
+  return <><aside className="runtime-dossier">
     <header>
       <label className="section-label">{dossierLabel(node)}</label>
       <span>{node.lifecycle}</span>
       <h2>{node.label}</h2>
       <code>{node.kind.replaceAll("_", " ")}</code>
+      <button type="button" className="runtime-json-open" onClick={() => {
+        setCopyStatus("idle");
+        setJsonOpen(true);
+      }}>View JSON</button>
     </header>
     {interpretation && <section className="runtime-interpretation">
       <label>{interpretation.label}</label>
@@ -59,7 +100,59 @@ export function RuntimeDossier({
       <span>{node.evidence.length} Argus {node.evidence.length === 1 ? "record" : "records"}</span>
       <span>{formatSeenRange(node)}</span>
     </footer>
-  </aside>;
+  </aside>
+  {jsonOpen && <div className="runtime-json-overlay" role="presentation" onMouseDown={(event) => {
+    if (event.target === event.currentTarget) setJsonOpen(false);
+  }}>
+    <section
+      className="runtime-json-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="runtime-json-title"
+    >
+      <header>
+        <div>
+          <label className="section-label">NORMALIZED RUNTIME EVIDENCE</label>
+          <h2 id="runtime-json-title">{node.label}</h2>
+          <p>Selected node and its connected evidence relationships.</p>
+        </div>
+        <button
+          type="button"
+          aria-label="Close evidence JSON"
+          onClick={() => setJsonOpen(false)}
+        >×</button>
+      </header>
+      <pre tabIndex={0}>{executionJson}</pre>
+      <footer>
+        <span role="status">
+          {copyStatus === "copied"
+            ? "Copied to clipboard."
+            : copyStatus === "manual"
+              ? "Clipboard unavailable. Select the JSON and copy it manually."
+              : "JSON is selectable and preserves normalized identifiers."}
+        </span>
+        <button
+          type="button"
+          className="runtime-json-copy"
+          onClick={copyExecutionJson}
+        >{copyStatus === "copied" ? "Copied" : "Copy JSON"}</button>
+      </footer>
+    </section>
+  </div>}
+  </>;
+}
+
+function copyTextFallback(value: string): boolean {
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.append(textarea);
+  textarea.select();
+  const copied = document.execCommand?.("copy") ?? false;
+  textarea.remove();
+  return copied;
 }
 
 function dossierLabel(node: RuntimeGraphNode): string {

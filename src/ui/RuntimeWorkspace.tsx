@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type {
   RuntimeCapture,
   RuntimeGraph,
@@ -123,6 +123,7 @@ export function RuntimeWorkspace({
   >(
     live && following ? "live" : "replay",
   );
+  const [controlPending, startControlTransition] = useTransition();
   const [playhead, setPlayhead] = useState(0);
   const activeIndex = Math.min(playhead, Math.max(0, activityGroups.length - 1));
   const activeGroup = activityGroups[activeIndex];
@@ -193,12 +194,29 @@ export function RuntimeWorkspace({
 
   function choosePlayback(next: "live" | "live-paused" | "replay" | "paused") {
     setPlayback(next);
-    if (live) onFollowingChange?.(next === "live");
+    if (live && onFollowingChange) {
+      startControlTransition(() => onFollowingChange(next === "live"));
+    }
   }
 
   async function resumeLive(): Promise<void> {
     if (!onJumpLive || await onJumpLive()) choosePlayback("live");
   }
+
+  const controlBusy = Boolean(historyAction) || controlPending;
+  const controlStatus = historyAction === "earlier"
+    ? "Loading earlier window…"
+    : historyAction === "jump"
+      ? "Loading selected window…"
+      : historyAction === "live"
+        ? "Returning to live…"
+        : controlPending
+          ? playback === "live-paused"
+            ? "Pausing live view…"
+            : playback === "replay"
+              ? "Starting replay…"
+              : "Updating view…"
+          : undefined;
 
   return <div className="runtime-workspace">
     <header className="runtime-heading">
@@ -292,7 +310,7 @@ export function RuntimeWorkspace({
           </span>
           {live && <i>Change</i>}
         </summary>
-        {live && <div className="runtime-window-menu">
+        {live && <div className="runtime-window-menu" aria-busy={Boolean(historyAction)}>
           <header>
             <b>Navigate retained evidence</b>
             <small>UTC · bounded by the server record limit</small>
@@ -304,7 +322,7 @@ export function RuntimeWorkspace({
               onClick={async () => {
                 if (await onLoadEarlier?.()) windowPicker.current?.removeAttribute("open");
               }}
-            >{historyAction === "earlier" ? "Loading…" : "← Earlier"}</button>
+            >{historyAction === "earlier" ? "Loading earlier…" : "← Earlier"}</button>
             <button
               type="button"
               disabled={!hasNewer || Boolean(historyAction)}
@@ -319,7 +337,7 @@ export function RuntimeWorkspace({
                   windowPicker.current?.removeAttribute("open");
                 }
               }}
-            >{historyAction === "live" ? "Loading…" : "Live"}</button>
+            >{historyAction === "live" ? "Returning to live…" : "Live"}</button>
           </nav>
           <label htmlFor="runtime-jump-time">Jump to events before</label>
           <div>
@@ -334,7 +352,7 @@ export function RuntimeWorkspace({
               if (await onJumpToTime?.(new Date(`${jumpTime}Z`).toISOString())) {
                 windowPicker.current?.removeAttribute("open");
               }
-            }}>{historyAction === "jump" ? "Loading…" : "Go"}</button>
+            }}>{historyAction === "jump" ? "Loading window…" : "Go"}</button>
           </div>
           {historyError && <p className="runtime-window-error" role="status">{historyError}</p>}
         </div>}
@@ -389,19 +407,25 @@ export function RuntimeWorkspace({
             {activeTraffic ? ` · ${activeTraffic.label}` : ""}
           </small>
         </div>}
-        <div className="runtime-playback" aria-label="Flow playback controls">
+        <div
+          className="runtime-playback"
+          aria-label="Flow playback controls"
+          aria-busy={controlBusy}
+        >
           <span className="runtime-playback-state" aria-live="polite">
-            <b>
-              {playback === "live"
+            <b>{controlStatus ?? (
+              playback === "live"
                 ? "Following live"
                 : playback === "live-paused"
                   ? "Live view paused"
                   : playback === "replay"
                     ? "Replay playing"
-                    : "Replay paused"}
-            </b>
+                    : "Replay paused"
+            )}</b>
             <small>
-              {playback === "live"
+              {controlStatus
+                ? <><i className="runtime-control-spinner" aria-hidden="true"/>Please wait while Contour updates the evidence view.</>
+                : playback === "live"
                 ? "New events update this view automatically."
                 : playback === "live-paused"
                   ? "New events will not move the current view."
@@ -414,26 +438,30 @@ export function RuntimeWorkspace({
             {playback === "live" && <button
               className="primary-playback"
               type="button"
+              disabled={controlBusy}
               onClick={() => choosePlayback("live-paused")}
             >Pause live view</button>}
             {playback === "live-paused" && <button
               className="primary-playback"
               type="button"
-              disabled={Boolean(historyAction)}
+              disabled={controlBusy}
               onClick={resumeLive}
             >Resume live view</button>}
             {playback === "replay" && <button
               className="primary-playback"
               type="button"
+              disabled={controlBusy}
               onClick={() => choosePlayback("paused")}
             >Pause replay</button>}
             {playback === "paused" && <button
               className="primary-playback"
               type="button"
+              disabled={controlBusy}
               onClick={() => choosePlayback("replay")}
             >Play replay</button>}
             {(playback === "live" || playback === "live-paused") && <button
               type="button"
+              disabled={controlBusy}
               onClick={() => {
                 setPlayhead(0);
                 choosePlayback("replay");
@@ -441,6 +469,7 @@ export function RuntimeWorkspace({
             >Replay from start</button>}
             {(playback === "replay" || playback === "paused") && <button
               type="button"
+              disabled={controlBusy}
               onClick={() => {
                 setPlayhead(0);
                 choosePlayback("replay");
@@ -448,7 +477,7 @@ export function RuntimeWorkspace({
             >Restart replay</button>}
             {live && (playback === "replay" || playback === "paused") && <button
               type="button"
-              disabled={Boolean(historyAction)}
+              disabled={controlBusy}
               onClick={resumeLive}
             >Return to live</button>}
           </span>

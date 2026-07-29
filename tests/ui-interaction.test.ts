@@ -154,6 +154,23 @@ describe("progressive topology interaction", () => {
     expect(container.querySelector(".runtime-heading h1")?.textContent).toBe("Observed software paths");
     expect(container.querySelector(".runtime-map")?.textContent).toContain("TCP flow");
     expect(container.querySelector(".runtime-dossier")?.textContent).toContain("EXECUTION SUMMARY");
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    act(() => [...container.querySelectorAll<HTMLButtonElement>(".runtime-dossier button")]
+      .find((button) => button.textContent === "View JSON")!.click());
+    const executionJson = container.querySelector(".runtime-json-dialog pre")?.textContent ?? "";
+    expect(container.querySelector(".runtime-json-dialog")?.getAttribute("aria-modal")).toBe("true");
+    expect(executionJson).toContain('"kind": "process_execution"');
+    expect(executionJson).toContain('"relationships"');
+    await act(async () => container.querySelector<HTMLButtonElement>(".runtime-json-copy")!.click());
+    expect(writeText).toHaveBeenCalledWith(executionJson);
+    act(() => container.querySelector<HTMLButtonElement>(
+      '[aria-label="Close evidence JSON"]',
+    )!.click());
+    expect(container.querySelector(".runtime-json-dialog")).toBeNull();
     expect(container.querySelector(".runtime-sequence")?.textContent).toContain("tcp connection created");
     expect(container.querySelector(".runtime-sequence li i")).toBeNull();
     expect(container.querySelector(".runtime-playback i")).toBeNull();
@@ -276,9 +293,17 @@ describe("progressive topology interaction", () => {
       readFileSync("fixtures/argus/process-network-sequence.jsonl", "utf8"),
       { synthetic: false, source: "clickhouse:otel.otel_logs" },
     );
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(capture), {
-      headers: { "content-type": "application/json" },
-    })));
+    let holdNextRequest = false;
+    let resolveHeldRequest!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(() => {
+      if (holdNextRequest) {
+        holdNextRequest = false;
+        return new Promise<Response>((resolve) => { resolveHeldRequest = resolve; });
+      }
+      return Promise.resolve(new Response(JSON.stringify(capture), {
+        headers: { "content-type": "application/json" },
+      }));
+    }));
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
@@ -295,6 +320,29 @@ describe("progressive topology interaction", () => {
       .toContain("Live view paused");
     expect(container.querySelector(".runtime-playback")?.textContent)
       .toContain("Resume live view");
+
+    holdNextRequest = true;
+    act(() => [...container.querySelectorAll<HTMLButtonElement>(".runtime-playback button")]
+      .find((button) => button.textContent === "Resume live view")!.click());
+    await act(async () => Promise.resolve());
+    expect(container.querySelector(".runtime-playback")?.getAttribute("aria-busy"))
+      .toBe("true");
+    expect(container.querySelector(".runtime-playback")?.textContent)
+      .toContain("Returning to live…");
+    expect([...container.querySelectorAll<HTMLButtonElement>(".runtime-playback button")]
+      .every((button) => button.disabled)).toBe(true);
+    expect(container.querySelector(".runtime-control-spinner")).not.toBeNull();
+
+    await act(async () => {
+      resolveHeldRequest(new Response(JSON.stringify(capture), {
+        headers: { "content-type": "application/json" },
+      }));
+      await Promise.resolve();
+    });
+    expect(container.querySelector(".runtime-playback")?.getAttribute("aria-busy"))
+      .toBe("false");
+    expect(container.querySelector(".runtime-playback-state")?.textContent)
+      .toContain("Following live");
 
     act(() => root.unmount());
     container.remove();
