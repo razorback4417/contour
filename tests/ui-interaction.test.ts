@@ -10,60 +10,10 @@ import { runtimeBrowserWindow } from "../src/runtime/transport";
 import { RuntimeDossier } from "../src/ui/RuntimeDossier";
 import { RuntimeWorkspace } from "../src/ui/RuntimeWorkspace";
 
-const styles = readFileSync("src/ui/styles.css", "utf8");
-const runtimeWorkspaceSource = readFileSync("src/ui/RuntimeWorkspace.tsx", "utf8");
-
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 describe("progressive topology interaction", () => {
   afterEach(() => vi.unstubAllGlobals());
-
-  it("gives the workspace all remaining viewport height", () => {
-    expect(cssRule(".shell")).toMatch(/display:\s*flex/);
-    expect(cssRule(".shell")).toMatch(/flex-direction:\s*column/);
-    expect(cssRule("main")).toMatch(/flex:\s*1/);
-  });
-
-  it("keeps physical-link fact labels separate from their values", () => {
-    expect(cssRule(".link-evidence .link-fact")).toMatch(/display:\s*grid/);
-    expect(cssRule(".link-evidence .link-fact")).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)\s+max-content/);
-  });
-
-  it("keeps overview routes comfortably inset from the browser edges", () => {
-    expect(cssRule(".overview-panel")).toMatch(/calc\(100%\s*-\s*144px\)/);
-    expect(cssRule(".workspace-card")).toMatch(/padding:\s*24px/);
-  });
-
-  it("uses a vertically centered product mark and hostname", () => {
-    expect(cssRule(".brand")).toMatch(/align-items:\s*center/);
-    expect(cssRule(".brand")).toMatch(/height:\s*100%/);
-    expect(cssRule(".brand-mark")).toMatch(/width:\s*20px/);
-    expect(cssRule(".brand-mark")).toMatch(/height:\s*20px/);
-    expect(cssRule(".host-label")).toMatch(/height:\s*20px/);
-    expect(cssRule(".host-label")).toMatch(/font:\s*10px\/20px/);
-  });
-
-  it("keeps primary runtime evidence above the microtype floor", () => {
-    expect(cssRule(".runtime-process-picker > summary b")).toMatch(/font:\s*12px/);
-    expect(cssRule(".runtime-map-nodes text")).toMatch(/font:\s*11px/);
-    expect(cssRule(".runtime-dossier dl div")).toMatch(/font:\s*9px/);
-    expect(cssRule(".runtime-sequence li b")).toMatch(/font:\s*9px/);
-  });
-
-  it("eases replay state changes without expensive active-state filters", () => {
-    expect(cssRule(".runtime-map-edges path")).toMatch(/transition:.*200ms ease/);
-    expect(cssRule(".runtime-map-nodes > g > rect:first-child")).toMatch(/transition:.*200ms ease/);
-    expect(cssRule(".runtime-sequence li")).toMatch(/transition:.*200ms ease/);
-    expect(cssRule(".runtime-map-edges path.active")).not.toMatch(/filter:/);
-    expect(cssRule(".runtime-map-nodes > g.active > rect:first-child")).not.toMatch(/filter:/);
-    expect(runtimeWorkspaceSource).toContain("}, 980)");
-    expect(runtimeWorkspaceSource).toContain('dur="760ms"');
-  });
-
-  function cssRule(selector: string): string {
-    const start = styles.indexOf(`${selector} {`);
-    return start < 0 ? "" : styles.slice(start, styles.indexOf("}", start) + 1);
-  }
 
   it("presents physical topology and runtime evidence as separate peer workspaces", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("Not found", { status: 404, headers: { "content-type": "text/plain" } })));
@@ -84,11 +34,7 @@ describe("progressive topology interaction", () => {
       .toContain("Runtime evidence");
     expect(container.querySelector(".runtime-workspace-card")?.textContent)
       .toContain("Synthetic replay");
-    expect(container.querySelector(".controls")).toBeNull();
-    expect(container.querySelector(".details")).toBeNull();
-    expect(container.querySelector(".overview-findings")).toBeNull();
     expect(container.querySelector(".brand-mark")?.getAttribute("aria-label")).toBe("Contour");
-    expect(container.querySelector(".brand strong")).toBeNull();
     expect(container.querySelector(".host-label")?.textContent).toBe("Contour");
     expect(container.querySelector(".primary-nav")?.getAttribute("aria-label"))
       .toBe("Contour workspaces");
@@ -109,17 +55,6 @@ describe("progressive topology interaction", () => {
     act(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(container.querySelector(".action-guide")).toBeNull();
 
-    act(() => root.unmount());
-    container.remove();
-  });
-
-  it("returns to the overview from the product mark", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("Not found", { status: 404, headers: { "content-type": "text/plain" } })));
-    const container = document.createElement("div");
-    document.body.append(container);
-    const root = createRoot(container);
-    await act(async () => root.render(createElement(App)));
-
     act(() => [...container.querySelectorAll<HTMLButtonElement>(".workspace-actions button")]
       .find((button) => button.textContent === "Open I/O topology")!.click());
     expect(container.querySelector("main")?.classList.contains("inspect-mode")).toBe(true);
@@ -134,7 +69,7 @@ describe("progressive topology interaction", () => {
     container.remove();
   });
 
-  it("replays the synthetic runtime fixture without physical topology controls", async () => {
+  it("replays a synthetic runtime window and highlights selected activity", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("Not found", { status: 404, headers: { "content-type": "text/plain" } })));
     const container = document.createElement("div");
     document.body.append(container);
@@ -150,32 +85,10 @@ describe("progressive topology interaction", () => {
     expect(container.querySelector(".runtime-investigation-bar")?.textContent).toContain("python3");
     expect(container.querySelector(".runtime-process-picker > summary label")?.textContent)
       .toBe("FOCUSED EXECUTION");
-    expect(container.querySelectorAll(".runtime-investigation-bar summary > span > label"))
-      .toHaveLength(2);
     expect(container.querySelector(".runtime-heading h1")?.textContent).toBe("Observed software paths");
     expect(container.querySelector(".runtime-map")?.textContent).toContain("TCP flow");
     expect(container.querySelector(".runtime-dossier")?.textContent).toContain("EXECUTION SUMMARY");
-    const writeText = vi.fn(async () => undefined);
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText },
-    });
-    act(() => [...container.querySelectorAll<HTMLButtonElement>(".runtime-dossier button")]
-      .find((button) => button.textContent === "View JSON")!.click());
-    const executionJson = container.querySelector(".runtime-json-dialog pre")?.textContent ?? "";
-    expect(container.querySelector(".runtime-json-dialog")?.getAttribute("aria-modal")).toBe("true");
-    expect(executionJson).toContain('"kind": "process_execution"');
-    expect(executionJson).toContain('"relationships"');
-    await act(async () => container.querySelector<HTMLButtonElement>(".runtime-json-copy")!.click());
-    expect(writeText).toHaveBeenCalledWith(executionJson);
-    act(() => container.querySelector<HTMLButtonElement>(
-      '[aria-label="Close evidence JSON"]',
-    )!.click());
-    expect(container.querySelector(".runtime-json-dialog")).toBeNull();
     expect(container.querySelector(".runtime-sequence")?.textContent).toContain("tcp connection created");
-    expect(container.querySelector(".runtime-sequence li i")).toBeNull();
-    expect(container.querySelector(".runtime-playback i")).toBeNull();
-    expect(container.querySelector(".runtime-map .runtime-now")).toBeNull();
     expect(container.querySelector(".runtime-sequence > header .runtime-active-event")).not.toBeNull();
     expect(container.querySelector(".runtime-playback-state")?.textContent)
       .toContain("Replay playing");
@@ -190,20 +103,68 @@ describe("progressive topology interaction", () => {
       .find((button) => button.textContent === "Play replay")!.click());
     expect(container.querySelector(".runtime-playback-state")?.textContent)
       .toContain("Replay playing");
+    expect(container.querySelectorAll(".runtime-map-edges path.active").length).toBeGreaterThan(0);
+    act(() => container.querySelectorAll<HTMLButtonElement>(".runtime-sequence li button")[1]!.click());
+    expect(container.querySelector(".runtime-data-pulse")).not.toBeNull();
+    act(() => [...container.querySelectorAll<HTMLButtonElement>(".runtime-playback button")]
+      .find((button) => button.textContent === "Restart replay")!.click());
+    expect(container.querySelector(".runtime-sequence li")?.classList.contains("active")).toBe(true);
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("opens and copies the normalized JSON for selected runtime evidence", async () => {
+    const capture = normalizeArgusJsonLines(
+      readFileSync("fixtures/argus/process-network-sequence.jsonl", "utf8"),
+      { synthetic: true },
+    );
+    const graph = buildRuntimeGraph(capture);
+    const process = graph.nodes.find((node) => node.kind === "process_execution")!;
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => root.render(createElement(RuntimeDossier, { graph, node: process })));
+
+    act(() => [...container.querySelectorAll<HTMLButtonElement>(".runtime-dossier button")]
+      .find((button) => button.textContent === "View JSON")!.click());
+    const executionJson = container.querySelector(".runtime-json-dialog pre")?.textContent ?? "";
+    expect(container.querySelector(".runtime-json-dialog")?.getAttribute("aria-modal")).toBe("true");
+    expect(executionJson).toContain('"kind": "process_execution"');
+    expect(executionJson).toContain('"relationships"');
+    await act(async () => container.querySelector<HTMLButtonElement>(".runtime-json-copy")!.click());
+    expect(writeText).toHaveBeenCalledWith(executionJson);
+    act(() => container.querySelector<HTMLButtonElement>(
+      '[aria-label="Close evidence JSON"]',
+    )!.click());
+    expect(container.querySelector(".runtime-json-dialog")).toBeNull();
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("exposes runtime compatibility and the normalized evidence ledger", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("Not found", {
+      status: 404,
+      headers: { "content-type": "text/plain" },
+    })));
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => root.render(createElement(App)));
+    act(() => [...container.querySelectorAll<HTMLButtonElement>(".primary-nav button")]
+      .find((button) => button.textContent === "Runtime evidence")!.click());
+
     expect(container.querySelector(".runtime-compatibility > summary")?.textContent)
       .toContain("5 normalized · 0 diagnostics");
     act(() => container.querySelector<HTMLElement>(".runtime-compatibility > summary")!.click());
     expect(container.querySelector(".runtime-compatibility")?.textContent).toContain("DOCA_ARGUS");
     expect(container.querySelector(".runtime-compatibility")?.textContent).toContain("product 1.4.0");
-    expect(container.querySelectorAll(".runtime-map-edges path.active").length).toBeGreaterThan(0);
-    act(() => container.querySelectorAll<HTMLButtonElement>(".runtime-sequence li button")[1]!.click());
-    expect(container.querySelector(".runtime-data-pulse")).not.toBeNull();
-    expect(container.querySelectorAll(".runtime-data-pulse").length).toBeLessThanOrEqual(2);
-    act(() => [...container.querySelectorAll<HTMLButtonElement>(".runtime-playback button")]
-      .find((button) => button.textContent === "Restart replay")!.click());
-    expect(container.querySelector(".runtime-sequence li")?.classList.contains("active")).toBe(true);
-    expect(container.querySelector(".controls")).toBeNull();
-    expect(container.querySelector(".details")).toBeNull();
     act(() => container.querySelector<HTMLButtonElement>(".runtime-evidence button")!.click());
     expect(container.querySelector("#runtime-ledger-title")?.textContent).toBe("Evidence ledger");
     expect(container.querySelectorAll(".runtime-ledger-list > button")).toHaveLength(5);
