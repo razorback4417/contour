@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { summarizeRuntimeCompatibility } from "../runtime/compatibility";
 import type { RuntimeCapture, RuntimeObservation } from "../runtime/types";
-import { formatRuntimeClock, runtimeActivityTarget } from "./runtime-activity";
+import { runtimeActivityTarget } from "./runtime-activity";
+import { formatPacificRange, formatPacificTimestamp } from "./runtime-time";
 
 export function RuntimeCompatibilityPanel({ capture }: { capture: RuntimeCapture }) {
   const summary = useMemo(() => summarizeRuntimeCompatibility(capture), [capture]);
@@ -89,7 +90,7 @@ export function RuntimeEvidenceLedger({
           <label className="section-label">CURRENT OBSERVATION WINDOW</label>
           <h2 id="runtime-ledger-title">Evidence ledger</h2>
           <p>
-            {formatRuntimeClock(capture.startedAt)}–{formatRuntimeClock(capture.endedAt)}
+            {formatPacificRange(capture.startedAt, capture.endedAt)}
             {" · "}{capture.observations.length} normalized observations
           </p>
         </div>
@@ -124,7 +125,7 @@ export function RuntimeEvidenceLedger({
           key={observation.id}
           onClick={() => onInspect(observation)}
         >
-          <time title={observation.observedAt}>{formatRuntimeClock(observation.observedAt)}</time>
+          <time title={observation.observedAt}>{formatPacificTimestamp(observation.observedAt)}</time>
           <span>
             <b>{observation.kind.replaceAll("_", " ")}</b>
             <small>

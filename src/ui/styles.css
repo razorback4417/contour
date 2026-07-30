@@ -265,7 +265,7 @@ aside section { margin-bottom: 22px; }
 .runtime-feed-status.evidence-updated { animation: runtime-evidence-update 1.4s ease-out; }
 .runtime-live-beacon { position: relative; flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; background: #80d0d6; box-shadow: 0 0 7px #69bfc7; }
 .runtime-live-beacon::after { position: absolute; inset: -5px; border: 1px solid #70c1c8; border-radius: 50%; content: ""; animation: runtime-live-heartbeat 2s ease-out infinite; }
-.runtime-investigation-bar { position: relative; z-index: 5; display: grid; grid-template-columns: minmax(280px, 1fr) 260px; gap: 14px; margin-bottom: 14px; }
+.runtime-investigation-bar { position: relative; z-index: 5; display: grid; grid-template-columns: minmax(280px, 1fr) 300px; gap: 14px; margin-bottom: 14px; }
 .runtime-investigation-bar > div { min-width: 0; }
 .runtime-investigation-bar label { display: block; margin-bottom: 6px; color: #657078; font: 8px ui-monospace, monospace; letter-spacing: .1em; }
 .runtime-process-picker { position: relative; }
@@ -429,7 +429,7 @@ aside section { margin-bottom: 22px; }
 .runtime-ledger-filters { display: grid; grid-template-columns: minmax(260px, 1fr) 220px; gap: 8px; padding: 12px 0; }
 .runtime-ledger-filters input, .runtime-ledger-filters select { border: 1px solid #344047; background: #0c1012; color: #b9c2c6; padding: 8px 10px; font: 9px ui-monospace, monospace; }
 .runtime-ledger-list { min-height: 0; overflow-y: auto; border: 1px solid #293036; scrollbar-color: #3b454b transparent; scrollbar-width: thin; }
-.runtime-ledger-list > header, .runtime-ledger-list > button { display: grid; grid-template-columns: 90px minmax(180px, 1.15fr) minmax(160px, 1fr) minmax(220px, 1.5fr); gap: 12px; align-items: center; }
+.runtime-ledger-list > header, .runtime-ledger-list > button { display: grid; grid-template-columns: 185px minmax(180px, 1.15fr) minmax(160px, 1fr) minmax(220px, 1.5fr); gap: 12px; align-items: center; }
 .runtime-ledger-list > header { position: sticky; z-index: 2; top: 0; border-bottom: 1px solid #30383d; background: #14191c; color: #657078; padding: 8px 11px; font: 8px ui-monospace, monospace; letter-spacing: .08em; }
 .runtime-ledger-list > button { width: 100%; border: 0; border-bottom: 1px solid #232a2e; background: transparent; color: #9ca7ac; padding: 9px 11px; text-align: left; }
 .runtime-ledger-list > button:hover { background: #172024; }

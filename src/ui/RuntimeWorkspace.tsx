@@ -18,11 +18,16 @@ import {
 import { RuntimeDossier } from "./RuntimeDossier";
 import {
   activityGroupLabel,
-  formatRuntimeClock,
   groupRuntimeActivity,
   runtimeActivityTarget,
   type RuntimeActivityGroup,
 } from "./runtime-activity";
+import {
+  formatPacificDateTimeInput,
+  formatPacificRange,
+  formatPacificTimestamp,
+  pacificDateTimeInputToIso,
+} from "./runtime-time";
 import {
   RuntimeCompatibilityPanel,
   RuntimeEvidenceLedger,
@@ -103,7 +108,7 @@ export function RuntimeWorkspace({
   }, [graph, processGroups, processQuery]);
   const processPicker = useRef<HTMLDetailsElement>(null);
   const windowPicker = useRef<HTMLDetailsElement>(null);
-  const [jumpTime, setJumpTime] = useState(() => formatDateTimeInput(capture.endedAt));
+  const [jumpTime, setJumpTime] = useState(() => formatPacificDateTimeInput(capture.endedAt));
   const projection = useMemo(
     () => focusId ? projectRuntimeFocus(graph, focusId) : undefined,
     [focusId, graph],
@@ -174,7 +179,7 @@ export function RuntimeWorkspace({
   }, [focusId]);
 
   useEffect(() => {
-    setJumpTime(formatDateTimeInput(capture.endedAt));
+    setJumpTime(formatPacificDateTimeInput(capture.endedAt));
   }, [capture.captureId, capture.endedAt]);
 
   useEffect(() => {
@@ -295,8 +300,8 @@ export function RuntimeWorkspace({
         ? "Window frozen. New events will not move this view."
         : live
           ? evidenceUpdated
-            ? `Evidence window updated · latest ${formatRuntimeClock(capture.endedAt)} UTC`
-            : `Watching Argus · latest ${formatRuntimeClock(capture.endedAt)} UTC`
+            ? `Evidence window updated · latest ${formatPacificTimestamp(capture.endedAt)}`
+            : `Watching Argus · latest ${formatPacificTimestamp(capture.endedAt)}`
           : "Playing a saved evidence capture.";
 
   return <div className="runtime-workspace">
@@ -379,7 +384,7 @@ export function RuntimeWorkspace({
         <summary>
           <span>
             <label>OBSERVATION WINDOW</label>
-            <b>{formatRuntimeClock(capture.startedAt)}–{formatRuntimeClock(capture.endedAt)}</b>
+            <b>{formatPacificRange(capture.startedAt, capture.endedAt)}</b>
             <small>
               {formatWindow(capture.startedAt, capture.endedAt)}
               {" · "}{activityGroups.length} activity episodes
@@ -390,7 +395,7 @@ export function RuntimeWorkspace({
         {live && <div className="runtime-window-menu" aria-busy={Boolean(historyAction)}>
           <header>
             <b>Navigate retained evidence</b>
-            <small>UTC · bounded by the server record limit</small>
+            <small>Pacific Time · bounded by the server record limit</small>
           </header>
           <nav>
             <button
@@ -426,7 +431,7 @@ export function RuntimeWorkspace({
               onChange={(event) => setJumpTime(event.target.value)}
             />
             <button type="button" disabled={!jumpTime || Boolean(historyAction)} onClick={async () => {
-              if (await onJumpToTime?.(new Date(`${jumpTime}Z`).toISOString())) {
+              if (await onJumpToTime?.(pacificDateTimeInputToIso(jumpTime))) {
                 windowPicker.current?.removeAttribute("open");
               }
             }}>{historyAction === "jump" ? "Loading window…" : "Go"}</button>
@@ -905,10 +910,6 @@ function formatReplayClock(value: number): string {
   const seconds = Math.floor((elapsed % 60_000) / 1_000);
   const milliseconds = elapsed % 1_000;
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(milliseconds).padStart(3, "0")}`;
-}
-
-function formatDateTimeInput(value: string): string {
-  return new Date(timestampMs(value)).toISOString().slice(0, 19);
 }
 
 function timestampMs(value: string): number {

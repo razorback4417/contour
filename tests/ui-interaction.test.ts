@@ -293,7 +293,13 @@ describe("progressive topology interaction", () => {
     act(() => container.querySelector<HTMLElement>(".runtime-window-summary > summary")!.click());
     expect(container.querySelector(".runtime-window-menu")?.textContent).toContain("Earlier");
     expect(container.querySelector(".runtime-window-menu")?.textContent).toContain("Newer");
-    expect(container.querySelector<HTMLInputElement>("#runtime-jump-time")?.type).toBe("datetime-local");
+    expect(container.querySelector(".runtime-window-summary > summary")?.textContent)
+      .toContain("2026-07-27 · 11:00:00–11:00:04 PDT");
+    expect(container.querySelector(".runtime-window-menu")?.textContent)
+      .toContain("Pacific Time");
+    const jumpInput = container.querySelector<HTMLInputElement>("#runtime-jump-time")!;
+    expect(jumpInput.type).toBe("datetime-local");
+    expect(jumpInput.value).toBe("2026-07-27T11:00:04.000");
     expect(container.querySelector(".runtime-heading")?.textContent).toContain("LIVE");
     act(() => document.body.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true })));
     expect(container.querySelector<HTMLDetailsElement>(".runtime-window-summary")?.open).toBe(false);
@@ -308,10 +314,23 @@ describe("progressive topology interaction", () => {
     const requestsBeforeNewer = fetchMock.mock.calls.length;
     act(() => newer.click());
     expect(fetchMock.mock.calls).toHaveLength(requestsBeforeNewer);
+    const valueSetter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!;
+    act(() => {
+      valueSetter.call(jumpInput, "2026-01-15T10:30:00");
+      jumpInput.dispatchEvent(new Event("input", { bubbles: true }));
+      jumpInput.dispatchEvent(new Event("change", { bubbles: true }));
+    });
     const go = [...container.querySelectorAll<HTMLButtonElement>(".runtime-window-menu button")]
       .find((button) => button.textContent === "Go")!;
     await act(async () => go.click());
-    expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain("before=");
+    const jumpRequest = new URL(
+      String(fetchMock.mock.calls.at(-1)?.[0]),
+      "http://contour.test",
+    );
+    expect(jumpRequest.searchParams.get("before")).toBe("2026-01-15T18:30:00.000Z");
 
     act(() => root.unmount());
     container.remove();

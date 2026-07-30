@@ -68,10 +68,6 @@ export function runtimeActivityTarget(observation: RuntimeObservation): string {
   return observation.process?.name ?? "execution";
 }
 
-export function formatRuntimeClock(value: string): string {
-  return new Date(timestampMs(value)).toISOString().slice(11, 19);
-}
-
 function activityCategory(
   observation: RuntimeObservation,
 ): RuntimeActivityGroup["category"] {
